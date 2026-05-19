@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator_android/geolocator_android.dart';
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
@@ -10,6 +12,10 @@ class GeolocatorAndroid extends GeolocatorPlatform {
   /// The method channel used to interact with the native platform.
   static const _methodChannel =
       MethodChannel('flutter.baseflow.com/geolocator_android');
+
+  /// The method channel used to interact with the background headless isolate.
+  static const _backgroundMethodChannel =
+      MethodChannel('flutter.baseflow.com/geolocator_android_background');
 
   /// The event channel used to receive [Position] updates from the native
   /// platform.
@@ -238,6 +244,71 @@ class GeolocatorAndroid extends GeolocatorPlatform {
   Future<bool> openLocationSettings() async => _methodChannel
       .invokeMethod<bool>('openLocationSettings')
       .then((value) => value ?? false);
+
+  /// Starts the background location service.
+  ///
+  /// The [locationSettings] specifies the configuration for the background
+  /// location updates, including the callback, interval, and distance filter.
+  ///
+  /// The [locationSettings] MUST be an instance of [AndroidSettings] and MUST
+  /// contain a [BackgroundSettings] instance.
+  Future<bool> startBackground(LocationSettings locationSettings) async {
+    if (locationSettings is! AndroidSettings ||
+        locationSettings.backgroundSettings == null) {
+      throw StateError(
+          'Background settings must be provided in AndroidSettings to start background location.');
+    }
+
+    final dispatcherHandle =
+        PluginUtilities.getCallbackHandle(_backgroundCallbackDispatcher);
+
+    if (dispatcherHandle == null) {
+      return false;
+    }
+
+    final backgroundSettings = locationSettings.backgroundSettings!;
+
+    return await _methodChannel.invokeMethod('startBackground', {
+      ...backgroundSettings.toJson(),
+      'dispatcherHandle': dispatcherHandle.toRawHandle(),
+    });
+  }
+
+  /// Stops the background location service.
+  Future<bool> stopBackground() async {
+    return await _methodChannel.invokeMethod('stopBackground');
+  }
+
+  /// Returns whether the background location service is running.
+  Future<bool> isBackgroundRunning() async {
+    return await _methodChannel.invokeMethod('isBackgroundRunning');
+  }
+
+  @pragma('vm:entry-point')
+  static void _backgroundCallbackDispatcher() {
+    const MethodChannel backgroundChannel =
+        MethodChannel('flutter.baseflow.com/geolocator_android_background');
+
+    WidgetsFlutterBinding.ensureInitialized();
+
+    backgroundChannel.setMethodCallHandler((MethodCall call) async {
+      if (call.method == 'onLocationUpdate') {
+        final Map<dynamic, dynamic> args = call.arguments;
+        final int callbackHandleRaw = args['callbackHandle'];
+        final Map<dynamic, dynamic> positionMap = args['position'];
+
+        final Function? callback = PluginUtilities.getCallbackFromHandle(
+            CallbackHandle.fromRawHandle(callbackHandleRaw));
+
+        if (callback != null) {
+          final Position position = AndroidPosition.fromMap(positionMap);
+          callback(position);
+        }
+      }
+    });
+
+    backgroundChannel.invokeMethod('initialized');
+  }
 
   Exception _handlePlatformException(PlatformException exception) {
     switch (exception.code) {

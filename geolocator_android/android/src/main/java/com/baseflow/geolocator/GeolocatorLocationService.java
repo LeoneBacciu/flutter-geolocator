@@ -6,6 +6,7 @@ import android.app.Notification;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.location.Location;
 import android.net.wifi.WifiManager;
 import android.os.Binder;
@@ -13,6 +14,8 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
+
+import java.util.HashMap;
 
 import androidx.annotation.Nullable;
 
@@ -30,6 +33,12 @@ public class GeolocatorLocationService extends Service {
   private static final String TAG = "FlutterGeolocator";
   private static final int ONGOING_NOTIFICATION_ID = 75415;
   private static final String CHANNEL_ID = "geolocator_channel_01";
+  private static final String SHARED_PREFERENCES_NAME = "geolocator_background_preferences";
+  private static final String CALLBACK_HANDLE_KEY = "callback_handle";
+  private static final String DISPATCHER_HANDLE_KEY = "dispatcher_handle";
+  private static final String TIME_INTERVAL_KEY = "time_interval";
+  private static final String DISTANCE_FILTER_KEY = "distance_filter";
+
   private final String WAKELOCK_TAG = "GeolocatorLocationService:Wakelock";
   private final String WIFILOCK_TAG = "GeolocatorLocationService:WifiLock";
   private final LocalBinder binder = new LocalBinder(this);
@@ -40,6 +49,8 @@ public class GeolocatorLocationService extends Service {
   @Nullable private Activity activity = null;
   @Nullable private GeolocationManager geolocationManager = null;
   @Nullable private LocationClient locationClient;
+  @Nullable private LocationClient backgroundLocationClient;
+  @Nullable private BackgroundExecutor backgroundExecutor;
 
   @Nullable private PowerManager.WakeLock wakeLock = null;
   @Nullable private WifiManager.WifiLock wifiLock = null;
@@ -54,6 +65,24 @@ public class GeolocatorLocationService extends Service {
 
   @Override
   public int onStartCommand(Intent intent, int flags, int startId) {
+    if (intent != null && intent.getAction() != null) {
+      if (intent.getAction().equals("stop")) {
+        stopBackgroundLocationService();
+        return START_NOT_STICKY;
+      }
+    }
+
+    // Attempt to restore background service if it was running.
+    SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
+    long callbackHandle = prefs.getLong(CALLBACK_HANDLE_KEY, 0);
+    long dispatcherHandle = prefs.getLong(DISPATCHER_HANDLE_KEY, 0);
+    long timeInterval = prefs.getLong(TIME_INTERVAL_KEY, 0);
+    long distanceFilter = prefs.getLong(DISTANCE_FILTER_KEY, 0);
+
+    if (callbackHandle != 0 && dispatcherHandle != 0) {
+      startBackgroundLocationService(callbackHandle, dispatcherHandle, timeInterval, distanceFilter);
+    }
+
     return START_STICKY;
   }
 
@@ -75,12 +104,92 @@ public class GeolocatorLocationService extends Service {
     Log.d(TAG, "Destroying location service.");
 
     stopLocationService();
+    stopBackgroundLocationService();
     disableBackgroundMode();
     geolocationManager = null;
     backgroundNotification = null;
 
     Log.d(TAG, "Destroyed location service.");
     super.onDestroy();
+  }
+
+  public boolean isBackgroundRunning() {
+    return backgroundExecutor != null && backgroundExecutor.isRunning();
+  }
+
+  public void startBackgroundLocationService(
+      long callbackHandle, long dispatcherHandle, long timeInterval, long distanceFilter) {
+    Log.d(TAG, "Starting background location service.");
+
+    // Store handles in SharedPreferences to allow restarting the service.
+    SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
+    prefs
+        .edit()
+        .putLong(CALLBACK_HANDLE_KEY, callbackHandle)
+        .putLong(DISPATCHER_HANDLE_KEY, dispatcherHandle)
+        .putLong(TIME_INTERVAL_KEY, timeInterval)
+        .putLong(DISTANCE_FILTER_KEY, distanceFilter)
+        .apply();
+
+    if (backgroundExecutor == null) {
+      backgroundExecutor = new BackgroundExecutor();
+    }
+
+    if (!backgroundExecutor.isRunning()) {
+      backgroundExecutor.startScanning(this.getApplicationContext(), dispatcherHandle);
+    }
+
+    if (geolocationManager == null) {
+      geolocationManager = GeolocationManager.getInstance();
+    }
+
+    if (backgroundLocationClient != null) {
+      geolocationManager.stopPositionUpdates(backgroundLocationClient);
+    }
+
+    // Background updates have a separate interval and distance filter.
+    LocationOptions options =
+        LocationOptions.parseArguments(
+            new HashMap<String, Object>() {
+              {
+                put("timeInterval", (int) timeInterval);
+                put("distanceFilter", (int) distanceFilter);
+                put("accuracy", 3); // High accuracy by default for background.
+                put("useMSLAltitude", false);
+              }
+            });
+
+    backgroundLocationClient =
+        geolocationManager.createLocationClient(this.getApplicationContext(), false, options);
+
+    geolocationManager.startPositionUpdates(
+        backgroundLocationClient,
+        null,
+        (Location location) -> {
+          if (backgroundExecutor != null) {
+            backgroundExecutor.onLocationUpdate(callbackHandle, location);
+          }
+        },
+        (ErrorCodes errorCodes) -> {
+          Log.e(TAG, "Error during background location update: " + errorCodes);
+        });
+  }
+
+  public void stopBackgroundLocationService() {
+    Log.d(TAG, "Stopping background location service.");
+
+    if (backgroundLocationClient != null && geolocationManager != null) {
+      geolocationManager.stopPositionUpdates(backgroundLocationClient);
+      backgroundLocationClient = null;
+    }
+
+    if (backgroundExecutor != null) {
+      backgroundExecutor.stopScanning();
+      backgroundExecutor = null;
+    }
+
+    SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
+    prefs.edit().clear().apply();
   }
 
   public boolean canStopLocationService(boolean cancellationRequested) {

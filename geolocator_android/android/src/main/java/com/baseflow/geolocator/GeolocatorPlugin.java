@@ -167,6 +167,10 @@ public class GeolocatorPlugin implements FlutterPlugin, ActivityAware {
     if (streamHandler != null) {
       streamHandler.setForegroundLocationService(service);
     }
+
+    if (methodCallHandler != null) {
+      methodCallHandler.setForegroundLocationService(service);
+    }
   }
 
   private void dispose() {
@@ -174,6 +178,7 @@ public class GeolocatorPlugin implements FlutterPlugin, ActivityAware {
     if (methodCallHandler != null) {
       methodCallHandler.stopListening();
       methodCallHandler.setActivity(null);
+      methodCallHandler.setForegroundLocationService(null);
       methodCallHandler = null;
     }
     if (streamHandler != null) {

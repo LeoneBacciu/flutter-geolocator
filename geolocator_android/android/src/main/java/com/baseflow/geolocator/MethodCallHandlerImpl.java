@@ -57,6 +57,7 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
   }
 
   @Nullable private MethodChannel channel;
+  @Nullable private GeolocatorLocationService locationService;
 
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull MethodChannel.Result result) {
@@ -89,6 +90,15 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
       case "openLocationSettings":
         boolean hasOpenedLocationSettings = Utils.openLocationSettings(this.context);
         result.success(hasOpenedLocationSettings);
+        break;
+      case "startBackground":
+        onStartBackground(call, result);
+        break;
+      case "stopBackground":
+        onStopBackground(result);
+        break;
+      case "isBackgroundRunning":
+        onIsBackgroundRunning(result);
         break;
       default:
         result.notImplemented();
@@ -131,6 +141,10 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
 
   void setActivity(@Nullable Activity activity) {
     this.activity = activity;
+  }
+
+  void setForegroundLocationService(@Nullable GeolocatorLocationService locationService) {
+    this.locationService = locationService;
   }
 
   private void onCheckPermission(MethodChannel.Result result) {
@@ -278,5 +292,42 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
     this.pendingCurrentPositionLocationClients.remove(requestId);
 
     result.success(null);
+  }
+
+  private void onStartBackground(MethodCall call, MethodChannel.Result result) {
+    if (locationService == null) {
+      result.error("SERVICE_NOT_BOUND", "The geolocator service is not bound.", null);
+      return;
+    }
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> arguments = (Map<String, Object>) call.arguments;
+    long callbackHandle = (long) arguments.get("callbackHandle");
+    long dispatcherHandle = (long) arguments.get("dispatcherHandle");
+    long timeInterval = ((Number) arguments.get("intervalDuration")).longValue();
+    long distanceFilter = ((Number) arguments.get("distanceFilter")).longValue();
+
+    locationService.startBackgroundLocationService(
+        callbackHandle, dispatcherHandle, timeInterval, distanceFilter);
+    result.success(true);
+  }
+
+  private void onStopBackground(MethodChannel.Result result) {
+    if (locationService == null) {
+      result.error("SERVICE_NOT_BOUND", "The geolocator service is not bound.", null);
+      return;
+    }
+
+    locationService.stopBackgroundLocationService();
+    result.success(true);
+  }
+
+  private void onIsBackgroundRunning(MethodChannel.Result result) {
+    if (locationService == null) {
+      result.error("SERVICE_NOT_BOUND", "The geolocator service is not bound.", null);
+      return;
+    }
+
+    result.success(locationService.isBackgroundRunning());
   }
 }

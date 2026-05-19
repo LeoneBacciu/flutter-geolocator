@@ -27,6 +27,9 @@ Position get mockPosition => AndroidPosition(
     speedAccuracy: 0.0,
     isMocked: false);
 
+@pragma('vm:entry-point')
+void backgroundCallback(Position position) {}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -1511,7 +1514,7 @@ void main() {
         );
         expect(
           jsonMap['foregroundNotificationConfig']['color'],
-          settings.foregroundNotificationConfig!.color!.toARGB32,
+          settings.foregroundNotificationConfig!.color!.toARGB32(),
         );
       });
 
@@ -1536,6 +1539,107 @@ void main() {
           hasOpenedLocationSettings,
           false,
         );
+      });
+    });
+
+    group('Background Location: When using background location', () {
+      test('startBackground should invoke correct method channel', () async {
+        // Arrange
+        final methodChannel = MethodChannelMock(
+          channelName: 'flutter.baseflow.com/geolocator_android',
+          methods: [
+            const MethodMock(
+              methodName: 'startBackground',
+              result: true,
+            ),
+          ],
+        );
+
+        final geolocator = GeolocatorAndroid();
+        final backgroundSettings = BackgroundSettings(
+          callback: backgroundCallback,
+          intervalDuration: const Duration(seconds: 10),
+          distanceFilter: 100,
+        );
+        final androidSettings = AndroidSettings(
+          backgroundSettings: backgroundSettings,
+        );
+
+        // Act
+        final result = await geolocator.startBackground(androidSettings);
+
+        // Assert
+        expect(result, true);
+        final methodCall = methodChannel.log.first as MethodCall;
+        expect(methodCall.method, 'startBackground');
+        expect(methodCall.arguments['callbackHandle'], isA<int>());
+        expect(methodCall.arguments['dispatcherHandle'], isA<int>());
+        expect(methodCall.arguments['intervalDuration'], 10000);
+        expect(methodCall.arguments['distanceFilter'], 100);
+      });
+
+      test(
+          'startBackground should throw StateError if background settings are missing',
+          () async {
+        final geolocator = GeolocatorAndroid();
+        // No background settings
+        const settings = LocationSettings();
+
+        expect(
+          () => geolocator.startBackground(settings),
+          throwsA(isA<StateError>()),
+        );
+      });
+
+      test('isBackgroundRunning should invoke correct method channel',
+          () async {
+        // Arrange
+        final methodChannel = MethodChannelMock(
+          channelName: 'flutter.baseflow.com/geolocator_android',
+          methods: [
+            const MethodMock(
+              methodName: 'isBackgroundRunning',
+              result: true,
+            ),
+          ],
+        );
+
+        // Act
+        final result = await GeolocatorAndroid().isBackgroundRunning();
+
+        // Assert
+        expect(result, true);
+        expect(methodChannel.log, <Matcher>[
+          isMethodCall(
+            'isBackgroundRunning',
+            arguments: null,
+          ),
+        ]);
+      });
+
+      test('stopBackground should invoke correct method channel', () async {
+        // Arrange
+        final methodChannel = MethodChannelMock(
+          channelName: 'flutter.baseflow.com/geolocator_android',
+          methods: [
+            const MethodMock(
+              methodName: 'stopBackground',
+              result: true,
+            ),
+          ],
+        );
+
+        // Act
+        final result = await GeolocatorAndroid().stopBackground();
+
+        // Assert
+        expect(result, true);
+        expect(methodChannel.log, <Matcher>[
+          isMethodCall(
+            'stopBackground',
+            arguments: null,
+          ),
+        ]);
       });
     });
   });
