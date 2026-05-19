@@ -1,15 +1,33 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:isolate';
+import 'dart:ui';
 
 import 'package:baseflow_plugin_template/baseflow_plugin_template.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator_android/geolocator_android.dart';
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Defines the main theme color.
 final MaterialColor themeMaterialColor =
     BaseflowPluginExample.createMaterialColor(
         const Color.fromRGBO(48, 49, 60, 1));
+
+const String _kBackgroundPositionsKey = 'background_positions';
+const String _kIsolateName = 'geolocator_background_isolate';
+
+@pragma('vm:entry-point')
+void backgroundCallback(Position position) async {
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final List<String> positions =
+      prefs.getStringList(_kBackgroundPositionsKey) ?? [];
+  positions.add(position.toString());
+  await prefs.setStringList(_kBackgroundPositionsKey, positions);
+
+  final SendPort? sendPort = IsolateNameServer.lookupPortByName(_kIsolateName);
+  sendPort?.send(position.toString());
+}
 
 void main() {
   runApp(const GeolocatorWidget());
@@ -44,13 +62,41 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
 
   final GeolocatorPlatform geolocatorAndroid = GeolocatorPlatform.instance;
   final List<_PositionItem> _positionItems = <_PositionItem>[];
+  final List<String> _backgroundPositions = <String>[];
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<ServiceStatus>? _serviceStatusStreamSubscription;
+  bool _isBackgroundRunning = false;
+  final ReceivePort _receivePort = ReceivePort();
 
   @override
   void initState() {
     super.initState();
     _toggleServiceStatusStream();
+    _initBackgroundState();
+  }
+
+  Future<void> _initBackgroundState() async {
+    IsolateNameServer.registerPortWithName(
+        _receivePort.sendPort, _kIsolateName);
+    _receivePort.listen((dynamic message) {
+      if (message is String) {
+        setState(() {
+          _backgroundPositions.add(message);
+        });
+      }
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _backgroundPositions
+          .addAll(prefs.getStringList(_kBackgroundPositionsKey) ?? []);
+    });
+
+    final isRunning = await (geolocatorAndroid as GeolocatorAndroid)
+        .isBackgroundRunning();
+    setState(() {
+      _isBackgroundRunning = isRunning;
+    });
   }
 
   PopupMenuButton _createActions() {
@@ -161,6 +207,7 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
                             ? 'Resume'
                             : 'Pause',
                     backgroundColor: _determineButtonColor(),
+                    heroTag: 'listening',
                     child: (_positionStreamSubscription == null ||
                             _positionStreamSubscription!.isPaused)
                         ? const Icon(Icons.play_arrow)
@@ -168,18 +215,67 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
                   ),
                   sizedBox,
                   FloatingActionButton(
+                    onPressed: _toggleBackground,
+                    tooltip: _isBackgroundRunning
+                        ? 'Stop background'
+                        : 'Start background',
+                    backgroundColor:
+                        _isBackgroundRunning ? Colors.green : Colors.red,
+                    heroTag: 'background',
+                    child: const Icon(Icons.history),
+                  ),
+                  sizedBox,
+                  FloatingActionButton(
                     onPressed: _getCurrentPosition,
+                    heroTag: 'current',
                     child: const Icon(Icons.my_location),
                   ),
                   sizedBox,
                   FloatingActionButton(
                     onPressed: _getLastKnownPosition,
+                    heroTag: 'last',
                     child: const Icon(Icons.bookmark),
                   ),
                 ],
               ),
             ),
-          )
+          ),
+          ExamplePage(
+            Icons.history,
+            (context) => Scaffold(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              appBar: AppBar(
+                title: const Text('Background Locations'),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.delete),
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.remove(_kBackgroundPositionsKey);
+                      setState(() {
+                        _backgroundPositions.clear();
+                      });
+                    },
+                  ),
+                ],
+              ),
+              body: ListView.builder(
+                itemCount: _backgroundPositions.length,
+                itemBuilder: (context, index) {
+                  final position = _backgroundPositions[index];
+                  return Card(
+                    child: ListTile(
+                      tileColor: themeMaterialColor,
+                      title: Text(
+                        position,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         ]);
   }
 
@@ -348,12 +444,44 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
     });
   }
 
+  Future<void> _toggleBackground() async {
+    final hasPermission = await _handlePermission();
+
+    if (!hasPermission) {
+      return;
+    }
+
+    final geolocatorAndroidPlugin = (geolocatorAndroid as GeolocatorAndroid);
+    final isRunning = await geolocatorAndroidPlugin.isBackgroundRunning();
+
+    if (isRunning) {
+      await geolocatorAndroidPlugin.stopBackground();
+    } else {
+      await geolocatorAndroidPlugin.startBackground(
+        AndroidSettings(
+          backgroundSettings: BackgroundSettings(
+            callback: backgroundCallback,
+            intervalDuration: const Duration(seconds: 5),
+            distanceFilter: 0,
+          ),
+        ),
+      );
+    }
+
+    final newIsRunning = await geolocatorAndroidPlugin.isBackgroundRunning();
+    setState(() {
+      _isBackgroundRunning = newIsRunning;
+    });
+  }
+
   @override
   void dispose() {
     if (_positionStreamSubscription != null) {
       _positionStreamSubscription!.cancel();
       _positionStreamSubscription = null;
     }
+    IsolateNameServer.removePortNameMapping(_kIsolateName);
+    _receivePort.close();
 
     super.dispose();
   }

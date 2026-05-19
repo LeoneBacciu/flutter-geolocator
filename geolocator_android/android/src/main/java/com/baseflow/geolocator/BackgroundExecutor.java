@@ -9,9 +9,11 @@ import androidx.annotation.NonNull;
 
 import com.baseflow.geolocator.location.LocationMapper;
 
+import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.FlutterEngineGroup;
 import io.flutter.embedding.engine.dart.DartExecutor;
+import io.flutter.embedding.engine.loader.FlutterLoader;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
@@ -59,12 +61,22 @@ public class BackgroundExecutor implements MethodChannel.MethodCallHandler {
       return;
     }
 
+    FlutterLoader loader = FlutterInjector.instance().flutterLoader();
+    loader.startInitialization(context);
+    loader.ensureInitializationComplete(context, null);
+
     DartExecutor.DartEntrypoint entrypoint =
         new DartExecutor.DartEntrypoint(
-            context.getPackageCodePath(),
+            loader.findAppBundlePath(),
             flutterCallbackInformation.callbackLibraryPath,
             flutterCallbackInformation.callbackName);
 
+    Log.i(
+        TAG,
+        "Creating engine with entrypoint: "
+            + flutterCallbackInformation.callbackName
+            + " in "
+            + flutterCallbackInformation.callbackLibraryPath);
     backgroundEngine = engineGroup.createAndRunEngine(context, entrypoint);
     initializeMethodChannel(backgroundEngine.getDartExecutor());
   }

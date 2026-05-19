@@ -13,10 +13,6 @@ class GeolocatorAndroid extends GeolocatorPlatform {
   static const _methodChannel =
       MethodChannel('flutter.baseflow.com/geolocator_android');
 
-  /// The method channel used to interact with the background headless isolate.
-  static const _backgroundMethodChannel =
-      MethodChannel('flutter.baseflow.com/geolocator_android_background');
-
   /// The event channel used to receive [Position] updates from the native
   /// platform.
   static const _eventChannel =
@@ -279,35 +275,8 @@ class GeolocatorAndroid extends GeolocatorPlatform {
     return await _methodChannel.invokeMethod('stopBackground');
   }
 
-  /// Returns whether the background location service is running.
   Future<bool> isBackgroundRunning() async {
     return await _methodChannel.invokeMethod('isBackgroundRunning');
-  }
-
-  @pragma('vm:entry-point')
-  static void _backgroundCallbackDispatcher() {
-    const MethodChannel backgroundChannel =
-        MethodChannel('flutter.baseflow.com/geolocator_android_background');
-
-    WidgetsFlutterBinding.ensureInitialized();
-
-    backgroundChannel.setMethodCallHandler((MethodCall call) async {
-      if (call.method == 'onLocationUpdate') {
-        final Map<dynamic, dynamic> args = call.arguments;
-        final int callbackHandleRaw = args['callbackHandle'];
-        final Map<dynamic, dynamic> positionMap = args['position'];
-
-        final Function? callback = PluginUtilities.getCallbackFromHandle(
-            CallbackHandle.fromRawHandle(callbackHandleRaw));
-
-        if (callback != null) {
-          final Position position = AndroidPosition.fromMap(positionMap);
-          callback(position);
-        }
-      }
-    });
-
-    backgroundChannel.invokeMethod('initialized');
   }
 
   Exception _handlePlatformException(PlatformException exception) {
@@ -330,4 +299,32 @@ class GeolocatorAndroid extends GeolocatorPlatform {
         return exception;
     }
   }
+}
+
+@pragma('vm:entry-point')
+void _backgroundCallbackDispatcher() {
+  const MethodChannel backgroundChannel =
+      MethodChannel('flutter.baseflow.com/geolocator_android_background');
+
+  WidgetsFlutterBinding.ensureInitialized();
+  print('GeolocatorAndroid: _backgroundCallbackDispatcher initialized');
+
+  backgroundChannel.setMethodCallHandler((MethodCall call) async {
+    print('GeolocatorAndroid: received method call ${call.method}');
+    if (call.method == 'onLocationUpdate') {
+      final Map<dynamic, dynamic> args = call.arguments;
+      final int callbackHandleRaw = args['callbackHandle'];
+      final Map<dynamic, dynamic> positionMap = args['position'];
+
+      final Function? callback = PluginUtilities.getCallbackFromHandle(
+          CallbackHandle.fromRawHandle(callbackHandleRaw));
+
+      if (callback != null) {
+        final Position position = AndroidPosition.fromMap(positionMap);
+        callback(position);
+      }
+    }
+  });
+
+  backgroundChannel.invokeMethod('initialized');
 }
