@@ -53,7 +53,7 @@ public class ForegroundNotificationOptions {
             color);
   }
 
-    private ForegroundNotificationOptions(
+    /*package*/ ForegroundNotificationOptions(
         @NonNull String notificationTitle,
         @NonNull String notificationText,
         @NonNull String notificationChannelName,

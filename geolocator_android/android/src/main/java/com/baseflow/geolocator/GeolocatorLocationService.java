@@ -6,7 +6,6 @@ import android.app.Notification;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.location.Location;
 import android.net.wifi.WifiManager;
 import android.os.Binder;
@@ -19,8 +18,10 @@ import androidx.annotation.Nullable;
 
 import com.baseflow.geolocator.errors.ErrorCodes;
 import com.baseflow.geolocator.location.BackgroundNotification;
+import com.baseflow.geolocator.location.BackgroundSettings;
 import com.baseflow.geolocator.location.ForegroundNotificationOptions;
 import com.baseflow.geolocator.location.GeolocationManager;
+import com.baseflow.geolocator.location.GeolocationPreferences;
 import com.baseflow.geolocator.location.LocationClient;
 import com.baseflow.geolocator.location.LocationMapper;
 import com.baseflow.geolocator.location.LocationOptions;
@@ -33,14 +34,8 @@ public class GeolocatorLocationService extends Service {
   private static final String TAG = "FlutterGeolocator";
   private static final int ONGOING_NOTIFICATION_ID = 75415;
   private static final String CHANNEL_ID = "geolocator_channel_01";
-  private static final String SHARED_PREFERENCES_NAME = "geolocator_background_preferences";
-  private static final String CALLBACK_HANDLE_KEY = "callback_handle";
-  private static final String DISPATCHER_HANDLE_KEY = "dispatcher_handle";
-  private static final String TIME_INTERVAL_KEY = "time_interval";
-  private static final String DISTANCE_FILTER_KEY = "distance_filter";
-
-  private final String WAKELOCK_TAG = "GeolocatorLocationService:Wakelock";
-  private final String WIFILOCK_TAG = "GeolocatorLocationService:WifiLock";
+  private static final String WAKELOCK_TAG = "GeolocatorLocationService:Wakelock";
+  private static final String WIFILOCK_TAG = "GeolocatorLocationService:WifiLock";
   private final LocalBinder binder = new LocalBinder(this);
   // Service is foreground
   private boolean isForeground = false;
@@ -83,14 +78,15 @@ public class GeolocatorLocationService extends Service {
     }
 
     // Attempt to restore background service if it was running.
-    SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
-    long callbackHandle = prefs.getLong(CALLBACK_HANDLE_KEY, 0);
-    long dispatcherHandle = prefs.getLong(DISPATCHER_HANDLE_KEY, 0);
-    long timeInterval = prefs.getLong(TIME_INTERVAL_KEY, 0);
-    long distanceFilter = prefs.getLong(DISTANCE_FILTER_KEY, 0);
+    GeolocationPreferences preferences = new GeolocationPreferences(this);
+    BackgroundSettings backgroundSettings = preferences.getBackgroundSettings();
 
-    if (callbackHandle != 0 && dispatcherHandle != 0) {
-      startBackgroundLocationService(callbackHandle, dispatcherHandle, timeInterval, distanceFilter, null);
+    if (backgroundSettings != null) {
+      ForegroundNotificationOptions foregroundNotificationOptions = preferences.getForegroundNotificationOptions();
+      startBackgroundLocationService(backgroundSettings, foregroundNotificationOptions);
+      Log.d(TAG, "Restored background location service.");
+    } else {
+      Log.d(TAG, "No background settings found, not restoring service.");
     }
 
     return START_STICKY;
@@ -100,6 +96,16 @@ public class GeolocatorLocationService extends Service {
   @Override
   public IBinder onBind(Intent intent) {
     Log.d(TAG, "Binding to location service.");
+    GeolocationPreferences preferences = new GeolocationPreferences(this);
+    BackgroundSettings backgroundSettings = preferences.getBackgroundSettings();
+
+    if (backgroundSettings != null) {
+      ForegroundNotificationOptions foregroundNotificationOptions = preferences.getForegroundNotificationOptions();
+      startBackgroundLocationService(backgroundSettings, foregroundNotificationOptions);
+      Log.d(TAG, "Restored background location service.");
+    } else {
+      Log.d(TAG, "No background settings found, not restoring service.");
+    }
     return binder;
   }
 
@@ -127,23 +133,19 @@ public class GeolocatorLocationService extends Service {
     return backgroundExecutor != null && backgroundExecutor.isRunning();
   }
 
-  public void startBackgroundLocationService(
-      long callbackHandle,
-      long dispatcherHandle,
-      long timeInterval,
-      long distanceFilter,
-      ForegroundNotificationOptions foregroundNotificationOptions) {
+  public void startBackgroundLocationService(BackgroundSettings backgroundSettings,
+                                             ForegroundNotificationOptions foregroundNotificationOptions) {
     Log.d(TAG, "Starting background location service.");
 
-    // Store handles in SharedPreferences to allow restarting the service.
-    SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
-    prefs
-        .edit()
-        .putLong(CALLBACK_HANDLE_KEY, callbackHandle)
-        .putLong(DISPATCHER_HANDLE_KEY, dispatcherHandle)
-        .putLong(TIME_INTERVAL_KEY, timeInterval)
-        .putLong(DISTANCE_FILTER_KEY, distanceFilter)
-        .apply();
+    // Store settings in GeolocationPreferences to allow restarting the service.
+    GeolocationPreferences preferences = new GeolocationPreferences(this);
+    preferences.saveBackgroundSettings(backgroundSettings);
+    preferences.saveForegroundNotificationOptions(foregroundNotificationOptions);
+
+    if (backgroundExecutor != null && backgroundExecutor.isRunning()) {
+      Log.d(TAG, "Background service already running.");
+      return;
+    }
 
     enableBackgroundMode(foregroundNotificationOptions);
 
@@ -151,14 +153,12 @@ public class GeolocatorLocationService extends Service {
       backgroundExecutor = new BackgroundExecutor();
     }
 
-    if (!backgroundExecutor.isRunning()) {
-      backgroundExecutor.startScanning(this.getApplicationContext(), dispatcherHandle);
-    }
+    backgroundExecutor.startScanning(this.getApplicationContext(), backgroundSettings.getDispatcherHandle());
 
-    if (backgroundNotification != null && foregroundNotificationOptions != null) {
+    if (backgroundNotification != null) {
       // Re-evaluate locks in case background was started while foreground mode was active.
       obtainWakeLocks(foregroundNotificationOptions);
-    } else if (isForeground && foregroundNotificationOptions != null) {
+    } else if (isForeground) {
       // Ensure we maintain lock if foreground mode is active.
       obtainWakeLocks(foregroundNotificationOptions);
     }
@@ -176,8 +176,8 @@ public class GeolocatorLocationService extends Service {
         LocationOptions.parseArguments(
             new HashMap<String, Object>() {
               {
-                put("timeInterval", (int) timeInterval);
-                put("distanceFilter", (int) distanceFilter);
+                put("timeInterval", (int) backgroundSettings.getTimeInterval());
+                put("distanceFilter", (int) backgroundSettings.getDistanceFilter());
                 put("accuracy", 3); // High accuracy by default for background.
                 put("useMSLAltitude", false);
               }
@@ -191,7 +191,7 @@ public class GeolocatorLocationService extends Service {
         null,
         (Location location) -> {
           if (backgroundExecutor != null) {
-            backgroundExecutor.onLocationUpdate(callbackHandle, location);
+            backgroundExecutor.onLocationUpdate(backgroundSettings.getCallbackHandle(), location);
           }
         },
         (ErrorCodes errorCodes) -> {
@@ -211,9 +211,11 @@ public class GeolocatorLocationService extends Service {
       backgroundExecutor.stopScanning();
       backgroundExecutor = null;
     }
+    
+    disableBackgroundMode();
 
-    SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
-    prefs.edit().clear().apply();
+    GeolocationPreferences preferences = new GeolocationPreferences(this);
+    preferences.clearBackgroundSettings();
 
     if (backgroundNotification != null && foregroundNotificationOptions != null) {
       // Re-evaluate locks in case background was stopped while foreground mode was active.
@@ -292,15 +294,10 @@ public class GeolocatorLocationService extends Service {
     obtainWakeLocks(options);
   }
 
-  @SuppressWarnings("deprecation")
   public void disableBackgroundMode() {
     if (isForeground) {
       Log.d(TAG, "Stop service in foreground.");
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        stopForeground(Service.STOP_FOREGROUND_REMOVE);
-      } else {
-        stopForeground(true);
-      }
+      stopForeground(Service.STOP_FOREGROUND_REMOVE);
       releaseWakeLocks();
       isForeground = false;
       backgroundNotification = null;

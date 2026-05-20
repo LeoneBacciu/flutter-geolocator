@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:geolocator_android/geolocator_android.dart';
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
 import 'package:uuid/uuid.dart';
@@ -262,10 +262,11 @@ class GeolocatorAndroid extends GeolocatorPlatform {
       return false;
     }
 
-    return await _methodChannel.invokeMethod('startBackground', {
-      ...locationSettings.toJson(),
-      'dispatcherHandle': dispatcherHandle.toRawHandle(),
-    });
+    final json = locationSettings.toJson();
+    json['backgroundSettings']['dispatcherHandle'] =
+        dispatcherHandle.toRawHandle();
+
+    return await _methodChannel.invokeMethod('startBackground', json);
   }
 
   /// Stops the background location service.

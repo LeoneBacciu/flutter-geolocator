@@ -11,9 +11,11 @@ import androidx.annotation.VisibleForTesting;
 
 import com.baseflow.geolocator.errors.ErrorCodes;
 import com.baseflow.geolocator.errors.PermissionUndefinedException;
+import com.baseflow.geolocator.location.BackgroundSettings;
 import com.baseflow.geolocator.location.FlutterLocationServiceListener;
 import com.baseflow.geolocator.location.ForegroundNotificationOptions;
 import com.baseflow.geolocator.location.GeolocationManager;
+import com.baseflow.geolocator.location.GeolocationPreferences;
 import com.baseflow.geolocator.location.LocationAccuracyManager;
 import com.baseflow.geolocator.location.LocationAccuracyStatus;
 import com.baseflow.geolocator.location.LocationClient;
@@ -316,16 +318,11 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
     Map<String, Object> backgroundSettings = (Map<String, Object>) arguments.get("backgroundSettings");
     Map<String, Object> foregroundNotificationConfig = (Map<String, Object>) arguments.get("foregroundNotificationConfig");
 
-    long dispatcherHandle = (long) arguments.get("dispatcherHandle");
-    long callbackHandle = (long) backgroundSettings.get("callbackHandle");
-    long timeInterval = ((Number) backgroundSettings.get("intervalDuration")).longValue();
-    long distanceFilter = ((Number) backgroundSettings.get("distanceFilter")).longValue();
-
+    BackgroundSettings backgroundSettingsObj = BackgroundSettings.parseArguments(backgroundSettings);
     ForegroundNotificationOptions foregroundNotificationOptions =
         ForegroundNotificationOptions.parseArguments(foregroundNotificationConfig);
 
-    locationService.startBackgroundLocationService(
-        callbackHandle, dispatcherHandle, timeInterval, distanceFilter, foregroundNotificationOptions);
+    locationService.startBackgroundLocationService(backgroundSettingsObj, foregroundNotificationOptions);
     result.success(true);
   }
 
@@ -340,11 +337,17 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
   }
 
   private void onIsBackgroundRunning(MethodChannel.Result result) {
-    if (locationService == null) {
-      result.error("SERVICE_NOT_BOUND", "The geolocator service is not bound.", null);
+    if (context == null) {
+      result.error("CONTEXT_NOT_INITIALIZED", "The geolocator context is not initialized.", null);
       return;
     }
 
-    result.success(locationService.isBackgroundRunning());
+    if (locationService != null) {
+      result.success(locationService.isBackgroundRunning());
+    } else {
+      // Check SharedPreferences directly if service is not yet bound
+      GeolocationPreferences preferences = new GeolocationPreferences(context);
+      result.success(preferences.getBackgroundSettings() != null);
+    }
   }
 }

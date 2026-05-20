@@ -19,7 +19,7 @@ public class AndroidIconResource {
                 defType);
     }
 
-    private AndroidIconResource(String name, String defType) {
+    /*package*/ AndroidIconResource(String name, String defType) {
         this.name = name;
         this.defType = defType;
     }
