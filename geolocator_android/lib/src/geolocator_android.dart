@@ -262,10 +262,8 @@ class GeolocatorAndroid extends GeolocatorPlatform {
       return false;
     }
 
-    final backgroundSettings = locationSettings.backgroundSettings!;
-
     return await _methodChannel.invokeMethod('startBackground', {
-      ...backgroundSettings.toJson(),
+      ...locationSettings.toJson(),
       'dispatcherHandle': dispatcherHandle.toRawHandle(),
     });
   }

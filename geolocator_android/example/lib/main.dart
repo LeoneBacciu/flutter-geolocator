@@ -19,6 +19,7 @@ const String _kIsolateName = 'geolocator_background_isolate';
 
 @pragma('vm:entry-point')
 void backgroundCallback(Position position) async {
+  print(position);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   final List<String> positions =
       prefs.getStringList(_kBackgroundPositionsKey) ?? [];
@@ -28,6 +29,26 @@ void backgroundCallback(Position position) async {
   final SendPort? sendPort = IsolateNameServer.lookupPortByName(_kIsolateName);
   sendPort?.send(position.toString());
 }
+
+final locationServiceSettings = AndroidSettings(
+    accuracy: LocationAccuracy.best,
+    distanceFilter: 10,
+    intervalDuration: const Duration(seconds: 1),
+    forceLocationManager: false,
+    useMSLAltitude: true,
+    foregroundNotificationConfig: const ForegroundNotificationConfig(
+      notificationText:
+          "Example app will continue to receive your location even when you aren't using it",
+      notificationTitle: "Running in Background",
+      enableWakeLock: true,
+      setOngoing: true,
+      color: Colors.amber,
+    ),
+    backgroundSettings: BackgroundSettings(
+      callback: backgroundCallback,
+      intervalDuration: const Duration(seconds: 5),
+      distanceFilter: 0,
+    ));
 
 void main() {
   runApp(const GeolocatorWidget());
@@ -92,8 +113,8 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
           .addAll(prefs.getStringList(_kBackgroundPositionsKey) ?? []);
     });
 
-    final isRunning = await (geolocatorAndroid as GeolocatorAndroid)
-        .isBackgroundRunning();
+    final isRunning =
+        await (geolocatorAndroid as GeolocatorAndroid).isBackgroundRunning();
     setState(() {
       _isBackgroundRunning = isRunning;
     });
@@ -390,26 +411,8 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
     }
 
     if (_positionStreamSubscription == null) {
-      final androidSettings = AndroidSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 10,
-        intervalDuration: const Duration(seconds: 1),
-        forceLocationManager: false,
-        useMSLAltitude: true,
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          // Explain to the user why we are showing this notification.
-          notificationText:
-              "Example app will continue to receive your location even when you aren't using it",
-          // Tell the user what we are doing.
-          notificationTitle: "Running in Background",
-          // Keep the system awake to receive background location information.
-          enableWakeLock: false,
-          // Give the notification an amber color.
-          color: Colors.amber,
-        ),
-      );
       final positionStream = geolocatorAndroid.getPositionStream(
-          locationSettings: androidSettings);
+          locationSettings: locationServiceSettings);
       _positionStreamSubscription = positionStream.handleError((error) {
         _positionStreamSubscription?.cancel();
         _positionStreamSubscription = null;
@@ -457,15 +460,7 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
     if (isRunning) {
       await geolocatorAndroidPlugin.stopBackground();
     } else {
-      await geolocatorAndroidPlugin.startBackground(
-        AndroidSettings(
-          backgroundSettings: BackgroundSettings(
-            callback: backgroundCallback,
-            intervalDuration: const Duration(seconds: 5),
-            distanceFilter: 0,
-          ),
-        ),
-      );
+      await geolocatorAndroidPlugin.startBackground(locationServiceSettings);
     }
 
     final newIsRunning = await geolocatorAndroidPlugin.isBackgroundRunning();

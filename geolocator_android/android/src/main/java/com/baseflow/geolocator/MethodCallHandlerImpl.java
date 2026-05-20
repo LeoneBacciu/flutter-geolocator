@@ -12,9 +12,10 @@ import androidx.annotation.VisibleForTesting;
 import com.baseflow.geolocator.errors.ErrorCodes;
 import com.baseflow.geolocator.errors.PermissionUndefinedException;
 import com.baseflow.geolocator.location.FlutterLocationServiceListener;
+import com.baseflow.geolocator.location.ForegroundNotificationOptions;
 import com.baseflow.geolocator.location.GeolocationManager;
-import com.baseflow.geolocator.location.LocationAccuracyStatus;
 import com.baseflow.geolocator.location.LocationAccuracyManager;
+import com.baseflow.geolocator.location.LocationAccuracyStatus;
 import com.baseflow.geolocator.location.LocationClient;
 import com.baseflow.geolocator.location.LocationMapper;
 import com.baseflow.geolocator.location.LocationOptions;
@@ -22,12 +23,12 @@ import com.baseflow.geolocator.permission.LocationPermission;
 import com.baseflow.geolocator.permission.PermissionManager;
 import com.baseflow.geolocator.utils.Utils;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Translates incoming Geolocator MethodCalls into well formed Java function calls for {@link
@@ -40,11 +41,14 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
   private final GeolocationManager geolocationManager;
   private final LocationAccuracyManager locationAccuracyManager;
 
-  @VisibleForTesting final Map<String, LocationClient> pendingCurrentPositionLocationClients;
+  @VisibleForTesting
+  final Map<String, LocationClient> pendingCurrentPositionLocationClients;
 
-  @Nullable private Context context;
+  @Nullable
+  private Context context;
 
-  @Nullable private Activity activity;
+  @Nullable
+  private Activity activity;
 
   MethodCallHandlerImpl(
       PermissionManager permissionManager,
@@ -56,8 +60,10 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
     this.pendingCurrentPositionLocationClients = new HashMap<>();
   }
 
-  @Nullable private MethodChannel channel;
-  @Nullable private GeolocatorLocationService locationService;
+  @Nullable
+  private MethodChannel channel;
+  @Nullable
+  private GeolocatorLocationService locationService;
 
   @Override
   public void onMethodCall(@NonNull MethodCall call, @NonNull MethodChannel.Result result) {
@@ -294,21 +300,32 @@ class MethodCallHandlerImpl implements MethodChannel.MethodCallHandler {
     result.success(null);
   }
 
+  @SuppressWarnings({"unchecked", "DataFlowIssue"})
   private void onStartBackground(MethodCall call, MethodChannel.Result result) {
     if (locationService == null) {
       result.error("SERVICE_NOT_BOUND", "The geolocator service is not bound.", null);
       return;
     }
 
-    @SuppressWarnings("unchecked")
     Map<String, Object> arguments = (Map<String, Object>) call.arguments;
-    long callbackHandle = (long) arguments.get("callbackHandle");
+    if (arguments.get("backgroundSettings") == null || arguments.get("foregroundNotificationConfig") == null) {
+      result.error("SETTINGS_NOT_FOUND", "To use the background service specify both Background and Foreground Notification configs", null);
+      return;
+    }
+
+    Map<String, Object> backgroundSettings = (Map<String, Object>) arguments.get("backgroundSettings");
+    Map<String, Object> foregroundNotificationConfig = (Map<String, Object>) arguments.get("foregroundNotificationConfig");
+
     long dispatcherHandle = (long) arguments.get("dispatcherHandle");
-    long timeInterval = ((Number) arguments.get("intervalDuration")).longValue();
-    long distanceFilter = ((Number) arguments.get("distanceFilter")).longValue();
+    long callbackHandle = (long) backgroundSettings.get("callbackHandle");
+    long timeInterval = ((Number) backgroundSettings.get("intervalDuration")).longValue();
+    long distanceFilter = ((Number) backgroundSettings.get("distanceFilter")).longValue();
+
+    ForegroundNotificationOptions foregroundNotificationOptions =
+        ForegroundNotificationOptions.parseArguments(foregroundNotificationConfig);
 
     locationService.startBackgroundLocationService(
-        callbackHandle, dispatcherHandle, timeInterval, distanceFilter);
+        callbackHandle, dispatcherHandle, timeInterval, distanceFilter, foregroundNotificationOptions);
     result.success(true);
   }
 

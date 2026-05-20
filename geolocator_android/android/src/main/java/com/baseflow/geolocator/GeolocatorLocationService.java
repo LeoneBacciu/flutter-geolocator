@@ -15,8 +15,6 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
 
-import java.util.HashMap;
-
 import androidx.annotation.Nullable;
 
 import com.baseflow.geolocator.errors.ErrorCodes;
@@ -26,6 +24,8 @@ import com.baseflow.geolocator.location.GeolocationManager;
 import com.baseflow.geolocator.location.LocationClient;
 import com.baseflow.geolocator.location.LocationMapper;
 import com.baseflow.geolocator.location.LocationOptions;
+
+import java.util.HashMap;
 
 import io.flutter.plugin.common.EventChannel;
 
@@ -46,16 +46,26 @@ public class GeolocatorLocationService extends Service {
   private boolean isForeground = false;
   private int connectedEngines = 0;
   private int listenerCount = 0;
-  @Nullable private Activity activity = null;
-  @Nullable private GeolocationManager geolocationManager = null;
-  @Nullable private LocationClient locationClient;
-  @Nullable private LocationClient backgroundLocationClient;
-  @Nullable private BackgroundExecutor backgroundExecutor;
+  @Nullable
+  private Activity activity = null;
+  @Nullable
+  private GeolocationManager geolocationManager = null;
+  @Nullable
+  private LocationClient locationClient;
+  @Nullable
+  private LocationClient backgroundLocationClient;
+  @Nullable
+  private BackgroundExecutor backgroundExecutor;
 
-  @Nullable private PowerManager.WakeLock wakeLock = null;
-  @Nullable private WifiManager.WifiLock wifiLock = null;
+  @Nullable
+  private PowerManager.WakeLock wakeLock = null;
+  @Nullable
+  private WifiManager.WifiLock wifiLock = null;
 
-  @Nullable private BackgroundNotification backgroundNotification = null;
+  @Nullable
+  private BackgroundNotification backgroundNotification = null;
+  @Nullable
+  private ForegroundNotificationOptions foregroundNotificationOptions = null;
 
   @Override
   public void onCreate() {
@@ -80,7 +90,7 @@ public class GeolocatorLocationService extends Service {
     long distanceFilter = prefs.getLong(DISTANCE_FILTER_KEY, 0);
 
     if (callbackHandle != 0 && dispatcherHandle != 0) {
-      startBackgroundLocationService(callbackHandle, dispatcherHandle, timeInterval, distanceFilter);
+      startBackgroundLocationService(callbackHandle, dispatcherHandle, timeInterval, distanceFilter, null);
     }
 
     return START_STICKY;
@@ -118,7 +128,11 @@ public class GeolocatorLocationService extends Service {
   }
 
   public void startBackgroundLocationService(
-      long callbackHandle, long dispatcherHandle, long timeInterval, long distanceFilter) {
+      long callbackHandle,
+      long dispatcherHandle,
+      long timeInterval,
+      long distanceFilter,
+      ForegroundNotificationOptions foregroundNotificationOptions) {
     Log.d(TAG, "Starting background location service.");
 
     // Store handles in SharedPreferences to allow restarting the service.
@@ -131,12 +145,22 @@ public class GeolocatorLocationService extends Service {
         .putLong(DISTANCE_FILTER_KEY, distanceFilter)
         .apply();
 
+    enableBackgroundMode(foregroundNotificationOptions);
+
     if (backgroundExecutor == null) {
       backgroundExecutor = new BackgroundExecutor();
     }
 
     if (!backgroundExecutor.isRunning()) {
       backgroundExecutor.startScanning(this.getApplicationContext(), dispatcherHandle);
+    }
+
+    if (backgroundNotification != null && foregroundNotificationOptions != null) {
+      // Re-evaluate locks in case background was started while foreground mode was active.
+      obtainWakeLocks(foregroundNotificationOptions);
+    } else if (isForeground && foregroundNotificationOptions != null) {
+      // Ensure we maintain lock if foreground mode is active.
+      obtainWakeLocks(foregroundNotificationOptions);
     }
 
     if (geolocationManager == null) {
@@ -190,6 +214,14 @@ public class GeolocatorLocationService extends Service {
 
     SharedPreferences prefs = getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
     prefs.edit().clear().apply();
+
+    if (backgroundNotification != null && foregroundNotificationOptions != null) {
+      // Re-evaluate locks in case background was stopped while foreground mode was active.
+      obtainWakeLocks(foregroundNotificationOptions);
+    } else if (isForeground && foregroundNotificationOptions != null) {
+      // Ensure we maintain lock if foreground mode is active.
+      obtainWakeLocks(foregroundNotificationOptions);
+    }
   }
 
   public boolean canStopLocationService(boolean cancellationRequested) {
@@ -256,6 +288,7 @@ public class GeolocatorLocationService extends Service {
       startForeground(ONGOING_NOTIFICATION_ID, notification);
       isForeground = true;
     }
+    foregroundNotificationOptions = options;
     obtainWakeLocks(options);
   }
 
@@ -271,11 +304,13 @@ public class GeolocatorLocationService extends Service {
       releaseWakeLocks();
       isForeground = false;
       backgroundNotification = null;
+      foregroundNotificationOptions = null;
     }
   }
 
   public void changeNotificationOptions(ForegroundNotificationOptions options) {
     if (backgroundNotification != null) {
+      foregroundNotificationOptions = options;
       backgroundNotification.updateOptions(options, isForeground);
       obtainWakeLocks(options);
     }
@@ -286,7 +321,7 @@ public class GeolocatorLocationService extends Service {
   }
 
   public void setGeolocationManager(@Nullable GeolocationManager geolocationManager) {
-      this.geolocationManager = geolocationManager;
+    this.geolocationManager = geolocationManager;
   }
 
   private void releaseWakeLocks() {
@@ -303,7 +338,9 @@ public class GeolocatorLocationService extends Service {
   @SuppressLint("WakelockTimeout")
   private void obtainWakeLocks(ForegroundNotificationOptions options) {
     releaseWakeLocks();
-    if (options.isEnableWakeLock()) {
+
+    boolean shouldAcquireWakeLock = options.isEnableWakeLock() || isBackgroundRunning();
+    if (shouldAcquireWakeLock) {
       PowerManager powerManager =
           (PowerManager) getApplicationContext().getSystemService(Context.POWER_SERVICE);
       if (powerManager != null) {
