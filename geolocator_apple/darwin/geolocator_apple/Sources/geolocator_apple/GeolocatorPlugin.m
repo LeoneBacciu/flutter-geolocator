@@ -5,6 +5,7 @@
 #import "./include/geolocator_apple/Handlers/GeolocationHandler.h"
 #import "./include/geolocator_apple/Handlers/PermissionHandler.h"
 #import "./include/geolocator_apple/Handlers/PositionStreamHandler.h"
+#import "./include/geolocator_apple/Handlers/BackgroundHandler.h"
 #import "./include/geolocator_apple/Utils/ActivityTypeMapper.h"
 #import "./include/geolocator_apple/Utils/AuthorizationStatusMapper.h"
 #import "./include/geolocator_apple/Utils/LocationAccuracyMapper.h"
@@ -21,7 +22,9 @@
 @property(strong, nonatomic, nonnull) LocationAccuracyHandler *locationAccuracyHandler;
 
 @property(strong, nonatomic, nonnull) PermissionHandler *permissionHandler;
-  
+
+@property(strong, nonatomic, nonnull) BackgroundHandler *backgroundHandler;
+
 @end
 
 @implementation GeolocatorPlugin
@@ -50,6 +53,12 @@
 - (GeolocationHandler *) createGeolocationHandler {
   if (!self.geolocationHandler) {
     self.geolocationHandler = [[GeolocationHandler alloc] init];
+    __weak typeof(self) weakSelf = self;
+    [self.geolocationHandler setLocationUpdateHandler:^(CLLocation * _Nonnull location) {
+      if (weakSelf.backgroundHandler) {
+        [weakSelf.backgroundHandler onLocationUpdate:location];
+      }
+    }];
   }
   return self.geolocationHandler;
 }
@@ -80,6 +89,10 @@
   self.permissionHandler = permissionHandler;
 }
 
+- (void) setBackgroundHandlerOverride:(BackgroundHandler *)backgroundHandler {
+  self.backgroundHandler = backgroundHandler;
+}
+
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
   if ([@"checkPermission" isEqualToString:call.method]) {
     [self onCheckPermission:result];
@@ -92,6 +105,13 @@
   } else if ([@"getCurrentPosition" isEqualToString:call.method]) {
     [self onGetCurrentPositionWithArguments:call.arguments
                                      result:result];
+  } else if ([@"startBackground" isEqualToString:call.method]) {
+    [self onStartBackgroundWithArguments:call.arguments
+                                  result:result];
+  } else if ([@"stopBackground" isEqualToString:call.method]) {
+    [self onStopBackground:result];
+  } else if ([@"isBackgroundRunning" isEqualToString:call.method]) {
+    [self onIsBackgroundRunning:result];
   } else if([@"getLocationAccuracy" isEqualToString:call.method]) {
     [[self createLocationAccuracyHandler] getLocationAccuracyWithResult:result];
   } else if([@"requestTemporaryFullAccuracy" isEqualToString:call.method]) {
@@ -168,6 +188,68 @@
   }];
 }
 
+- (void)onStartBackgroundWithArguments:(id _Nullable)arguments
+                                result:(FlutterResult)result {
+  if (![[self createPermissionHandler] hasPermission]) {
+    result([FlutterError errorWithCode: GeolocatorErrorPermissionDenied
+                               message:@"User denied permissions to access the device's location."
+                               details:nil]);
+    return;
+  }
+
+  NSDictionary *backgroundSettings = arguments[@"backgroundSettings"];
+  int64_t dispatcherHandle = [backgroundSettings[@"dispatcherHandle"] longLongValue];
+  int64_t callbackHandle = [backgroundSettings[@"callbackHandle"] longLongValue];
+  double timeInterval = [backgroundSettings[@"intervalDuration"] doubleValue] / 1000.0;
+  double distanceFilter = [backgroundSettings[@"distanceFilter"] doubleValue];
+
+  [[self createBackgroundHandler] startBackgroundWithDispatcherHandle:dispatcherHandle
+                                                       callbackHandle:callbackHandle
+                                                         timeInterval:timeInterval
+                                                       distanceFilter:distanceFilter];
+
+  CLLocationAccuracy accuracy = [LocationAccuracyMapper toCLLocationAccuracy:(NSNumber *)arguments[@"accuracy"]];
+  CLLocationDistance clDistanceFilter = [LocationDistanceMapper toCLLocationDistance:(NSNumber *)arguments[@"distanceFilter"]];
+  NSNumber* pauseLocationUpdatesAutomatically = arguments[@"pauseLocationUpdatesAutomatically"];
+  CLActivityType activityType = [ActivityTypeMapper toCLActivityType:(NSNumber *)arguments[@"activityType"]];
+  NSNumber* allowBackgroundLocationUpdates = arguments[@"allowBackgroundLocationUpdates"];
+  NSNumber* showBackgroundLocationIndicator = arguments[@"showBackgroundLocationIndicator"];
+
+  NSLog(@"GeolocatorApple: Starting native location updates for background...");
+  self.geolocationHandler.isListeningForBackground = YES;
+  [[self createGeolocationHandler] startListeningWithDesiredAccuracy:accuracy
+                                                      distanceFilter:clDistanceFilter
+                                   pauseLocationUpdatesAutomatically:pauseLocationUpdatesAutomatically && [pauseLocationUpdatesAutomatically boolValue]
+                                     showBackgroundLocationIndicator:showBackgroundLocationIndicator && [showBackgroundLocationIndicator boolValue]
+                                                        activityType:activityType
+                                      allowBackgroundLocationUpdates:[allowBackgroundLocationUpdates boolValue]
+                                                       resultHandler:^(CLLocation *location) {
+    NSLog(@"GeolocatorApple: Native location update received in background resultHandler hook");
+  }
+                                                        errorHandler:^(NSString *errorCode, NSString *errorDescription){
+    NSLog(@"GeolocatorApple: Native location error in background: %@ - %@", errorCode, errorDescription);
+  }];
+
+  result(@YES);
+}
+
+- (void)onStopBackground:(FlutterResult)result {
+  [[self createBackgroundHandler] stopBackground];
+  [[self createGeolocationHandler] stopListeningForBackground];
+  result(@YES);
+}
+
+- (void)onIsBackgroundRunning:(FlutterResult)result {
+  BOOL isRunning = [[self createBackgroundHandler] isBackgroundRunning];
+  result(@(isRunning));
+}
+
+- (BackgroundHandler *) createBackgroundHandler {
+  if (!self.backgroundHandler) {
+    self.backgroundHandler = [[BackgroundHandler alloc] init];
+  }
+  return self.backgroundHandler;
+}
 
 - (void)openSettings:(FlutterResult)result {
 #if TARGET_OS_OSX

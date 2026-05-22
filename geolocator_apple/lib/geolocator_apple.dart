@@ -18,3 +18,4 @@ export 'package:geolocator_platform_interface/geolocator_platform_interface.dart
 export 'src/geolocator_apple.dart';
 export 'src/types/activity_type.dart';
 export 'src/types/apple_settings.dart';
+export 'src/types/background_settings.dart';

@@ -13,8 +13,12 @@
 
 typedef void (^GeolocatorError)(NSString *_Nonnull errorCode, NSString *_Nonnull  errorDescription);
 typedef void (^GeolocatorResult)(CLLocation *_Nullable location);
+typedef void (^LocationUpdateHandler)(CLLocation *_Nonnull location);
 
 @interface GeolocationHandler : NSObject
+
+@property (copy, nonatomic) LocationUpdateHandler _Nullable locationUpdateHandler;
+@property (assign, nonatomic) BOOL isListeningForBackground;
 
 - (CLLocation *_Nullable)getLastKnownPosition;
 
@@ -32,6 +36,7 @@ typedef void (^GeolocatorResult)(CLLocation *_Nullable location);
                              errorHandler:(GeolocatorError _Nonnull)errorHandler;
 
 - (void)stopListening;
+- (void)stopListeningForBackground;
 + (BOOL) shouldEnableBackgroundLocationUpdates;
 @end
 

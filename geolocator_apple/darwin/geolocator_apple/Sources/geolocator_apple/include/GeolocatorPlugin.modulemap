@@ -11,6 +11,7 @@ framework module geolocator_apple {
     header "LocationServiceStreamHandler.h"
     header "PermissionHandler.h"
     header "PositionStreamHandler.h"
+    header "BackgroundHandler.h"
     header "ActivityTypeMapper.h"
     header "AuthorizationStatusMapper.h"
     header "LocationAccuracyMapper.h"

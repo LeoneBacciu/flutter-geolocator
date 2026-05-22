@@ -4,10 +4,12 @@
 #import <geolocator_apple/GeolocationHandler.h>
 #import <geolocator_apple/LocationAccuracyHandler.h>
 #import <geolocator_apple/PermissionHandler.h>
+#import <geolocator_apple/BackgroundHandler.h>
 #else
 #import "Handlers/GeolocationHandler.h"
 #import "Handlers/LocationAccuracyHandler.h"
 #import "Handlers/PermissionHandler.h"
+#import "Handlers/BackgroundHandler.h"
 #endif
 
 /// Methods exposed for unit testing.
@@ -24,5 +26,9 @@
 /// Overrides the PermissionHandler instance used by the GeolocatorPlugin.
 /// This should only be used for testing purposes.
 - (void)setPermissionHandlerOverride:(PermissionHandler *)permissionHandler;
+
+/// Overrides the BackgroundHandler instance used by the GeolocatorPlugin.
+/// This should only be used for testing purposes.
+- (void)setBackgroundHandlerOverride:(BackgroundHandler *)backgroundHandler;
 
 @end

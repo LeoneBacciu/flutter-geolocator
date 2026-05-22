@@ -1,15 +1,49 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:isolate';
+import 'dart:ui';
 
 import 'package:baseflow_plugin_template/baseflow_plugin_template.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator_apple/geolocator_apple.dart';
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Defines the main theme color.
 final MaterialColor themeMaterialColor =
     BaseflowPluginExample.createMaterialColor(
         const Color.fromRGBO(48, 49, 60, 1));
+
+const String _kBackgroundPositionsKey = 'background_positions';
+const String _kIsolateName = 'geolocator_background_isolate';
+
+@pragma('vm:entry-point')
+void backgroundCallback(Position position) async {
+  print(position);
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final List<String> positions =
+      prefs.getStringList(_kBackgroundPositionsKey) ?? [];
+  positions.add(position.toString());
+  await prefs.setStringList(_kBackgroundPositionsKey, positions);
+
+  final SendPort? sendPort = IsolateNameServer.lookupPortByName(_kIsolateName);
+  sendPort?.send(position.toString());
+
+  print(position);
+}
+
+final appleSettings = AppleSettings(
+  accuracy: LocationAccuracy.best,
+  distanceFilter: 0,
+  activityType: ActivityType.other,
+  showBackgroundLocationIndicator: true,
+  allowBackgroundLocationUpdates: true,
+  backgroundSettings: BackgroundSettings(
+    callback: backgroundCallback,
+    intervalDuration: const Duration(seconds: 5),
+    distanceFilter: 0,
+  ),
+);
 
 void main() {
   runApp(const GeolocatorWidget());
@@ -40,13 +74,41 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
 
   final GeolocatorPlatform geolocatorApple = GeolocatorPlatform.instance;
   final List<_PositionItem> _positionItems = <_PositionItem>[];
+  final List<String> _backgroundPositions = <String>[];
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<ServiceStatus>? _serviceStatusStreamSubscription;
+  bool _isBackgroundRunning = false;
+  final ReceivePort _receivePort = ReceivePort();
 
   @override
   void initState() {
     super.initState();
     _toggleServiceStatusStream();
+    _initBackgroundState();
+  }
+
+  Future<void> _initBackgroundState() async {
+    IsolateNameServer.registerPortWithName(
+        _receivePort.sendPort, _kIsolateName);
+    _receivePort.listen((dynamic message) {
+      if (message is String) {
+        setState(() {
+          _backgroundPositions.add(message);
+        });
+      }
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _backgroundPositions
+          .addAll(prefs.getStringList(_kBackgroundPositionsKey) ?? []);
+    });
+
+    final isRunning =
+        await (geolocatorApple as GeolocatorApple).isBackgroundRunning();
+    setState(() {
+      _isBackgroundRunning = isRunning;
+    });
   }
 
   PopupMenuButton _createActions() {
@@ -158,6 +220,7 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
                             ? 'Resume'
                             : 'Pause',
                     backgroundColor: _determineButtonColor(),
+                    heroTag: 'listening',
                     child: (_positionStreamSubscription == null ||
                             _positionStreamSubscription!.isPaused)
                         ? const Icon(Icons.play_arrow)
@@ -165,38 +228,88 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
                   ),
                   sizedBox,
                   FloatingActionButton(
+                    onPressed: _toggleBackground,
+                    tooltip: _isBackgroundRunning
+                        ? 'Stop background'
+                        : 'Start background',
+                    backgroundColor:
+                        _isBackgroundRunning ? Colors.green : Colors.red,
+                    heroTag: 'background',
+                    child: const Icon(Icons.history),
+                  ),
+                  sizedBox,
+                  FloatingActionButton(
                     onPressed: _getCurrentPosition,
+                    heroTag: 'current',
                     child: const Icon(Icons.my_location),
                   ),
                   sizedBox,
                   FloatingActionButton(
                     onPressed: _getLastKnownPosition,
+                    heroTag: 'last',
                     child: const Icon(Icons.bookmark),
                   ),
                   sizedBox,
                   FloatingActionButton(
                     onPressed: _isLocationServiceEnabled,
+                    heroTag: 'service',
                     child: const Icon(Icons.question_mark),
                   ),
                 ],
               ),
             ),
-          )
+          ),
+          ExamplePage(
+            Icons.history,
+            (context) => Scaffold(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              appBar: AppBar(
+                title: const Text('Background Locations'),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.delete),
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.remove(_kBackgroundPositionsKey);
+                      setState(() {
+                        _backgroundPositions.clear();
+                      });
+                    },
+                  ),
+                ],
+              ),
+              body: ListView.builder(
+                itemCount: _backgroundPositions.length,
+                itemBuilder: (context, index) {
+                  final position = _backgroundPositions[index];
+                  return Card(
+                    child: ListTile(
+                      tileColor: themeMaterialColor,
+                      title: Text(
+                        position,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
         ]);
   }
 
   Future<void> _getCurrentPosition() async {
     final hasPermission = await _handlePermission();
 
-    if (!hasPermission) {
-      return;
+    if (hasPermission) {
+      final position = await geolocatorApple.getCurrentPosition(
+        locationSettings: appleSettings,
+      );
+      _updatePositionList(
+        _PositionItemType.position,
+        position.toString(),
+      );
     }
-
-    final position = await geolocatorApple.getCurrentPosition();
-    _updatePositionList(
-      _PositionItemType.position,
-      position.toString(),
-    );
   }
 
   Future<bool> _handlePermission() async {
@@ -291,59 +404,44 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
   Future<void> _toggleListening() async {
     final hasPermission = await _handlePermission();
 
-    if (!hasPermission) {
-      return;
-    }
-
-    Exception? error;
-
-    if (_positionStreamSubscription == null) {
-      final Stream<Position> positionStream = geolocatorApple.getPositionStream(
-          locationSettings: AppleSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 10,
-        activityType: ActivityType.other,
-        // Only set showBackgroundLocationIndicator and
-        // allowBackgroundLocationUpdates to true if our app will be started up
-        // in the background.
-        showBackgroundLocationIndicator: false,
-        allowBackgroundLocationUpdates: false,
-      ));
-      _positionStreamSubscription = positionStream.handleError((e) {
-        _positionStreamSubscription?.cancel();
-        _positionStreamSubscription = null;
-        error = e;
-      }).listen((position) => _updatePositionList(
-            _PositionItemType.position,
-            position.toString(),
-          ));
-      _positionStreamSubscription?.pause();
-    }
-
-    setState(() {
+    if (hasPermission) {
+      Exception? error;
       if (_positionStreamSubscription == null) {
-        return;
+        final Stream<Position> positionStream =
+            geolocatorApple.getPositionStream(locationSettings: appleSettings);
+        _positionStreamSubscription = positionStream.handleError((e) {
+          _positionStreamSubscription?.cancel();
+          _positionStreamSubscription = null;
+          setState(() {
+            _updatePositionList(_PositionItemType.log, e.toString());
+          });
+        }).listen((position) => _updatePositionList(
+              _PositionItemType.position,
+              position.toString(),
+            ));
+        _positionStreamSubscription?.pause();
       }
 
-      if (error != null) {
-        _updatePositionList(_PositionItemType.log, error.toString());
-        return;
-      }
+      setState(() {
+        if (_positionStreamSubscription == null) {
+          return;
+        }
 
-      String statusDisplayValue;
-      if (_positionStreamSubscription!.isPaused) {
-        _positionStreamSubscription!.resume();
-        statusDisplayValue = 'resumed';
-      } else {
-        _positionStreamSubscription!.pause();
-        statusDisplayValue = 'paused';
-      }
+        String statusDisplayValue;
+        if (_positionStreamSubscription!.isPaused) {
+          _positionStreamSubscription!.resume();
+          statusDisplayValue = 'resumed';
+        } else {
+          _positionStreamSubscription!.pause();
+          statusDisplayValue = 'paused';
+        }
 
-      _updatePositionList(
-        _PositionItemType.log,
-        'Listening for position updates $statusDisplayValue',
-      );
-    });
+        _updatePositionList(
+          _PositionItemType.log,
+          'Listening for position updates $statusDisplayValue',
+        );
+      });
+    }
   }
 
   @override
@@ -369,6 +467,28 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
         'No last known position available',
       );
     }
+  }
+
+  Future<void> _toggleBackground() async {
+    final hasPermission = await _handlePermission();
+
+    if (!hasPermission) {
+      return;
+    }
+
+    final geolocatorApplePlugin = (geolocatorApple as GeolocatorApple);
+    final isRunning = await geolocatorApplePlugin.isBackgroundRunning();
+
+    if (isRunning) {
+      await geolocatorApplePlugin.stopBackground();
+    } else {
+      await geolocatorApplePlugin.startBackground(appleSettings);
+    }
+
+    final newIsRunning = await geolocatorApplePlugin.isBackgroundRunning();
+    setState(() {
+      _isBackgroundRunning = newIsRunning;
+    });
   }
 
   Future<void> _isLocationServiceEnabled() async {

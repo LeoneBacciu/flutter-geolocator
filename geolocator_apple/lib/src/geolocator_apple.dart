@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
+import 'package:geolocator_apple/geolocator_apple.dart';
 
 /// An implementation of [GeolocatorPlatform] that uses method channels.
 class GeolocatorApple extends GeolocatorPlatform {
@@ -226,6 +229,44 @@ class GeolocatorApple extends GeolocatorPlatform {
       .invokeMethod<bool>('openLocationSettings')
       .then((value) => value ?? false);
 
+  /// Starts the background location service.
+  ///
+  /// The [locationSettings] specifies the configuration for the background
+  /// location updates, including the callback, interval, and distance filter.
+  ///
+  /// The [locationSettings] MUST be an instance of [AppleSettings] and MUST
+  /// contain a [BackgroundSettings] instance.
+  Future<bool> startBackground(LocationSettings locationSettings) async {
+    if (locationSettings is! AppleSettings ||
+        locationSettings.backgroundSettings == null) {
+      throw StateError(
+          'Background settings must be provided in AppleSettings to start background location.');
+    }
+
+    final dispatcherHandle =
+        PluginUtilities.getCallbackHandle(_backgroundCallbackDispatcher);
+
+    if (dispatcherHandle == null) {
+      return false;
+    }
+
+    final json = locationSettings.toJson();
+    json['backgroundSettings']['dispatcherHandle'] =
+        dispatcherHandle.toRawHandle();
+
+    return await _methodChannel.invokeMethod('startBackground', json) ?? false;
+  }
+
+  /// Stops the background location service.
+  Future<bool> stopBackground() async {
+    return await _methodChannel.invokeMethod('stopBackground') ?? false;
+  }
+
+  /// Returns whether the background location service is running.
+  Future<bool> isBackgroundRunning() async {
+    return await _methodChannel.invokeMethod('isBackgroundRunning') ?? false;
+  }
+
   Exception _handlePlatformException(PlatformException exception) {
     switch (exception.code) {
       case 'ACTIVITY_MISSING':
@@ -246,4 +287,38 @@ class GeolocatorApple extends GeolocatorPlatform {
         return exception;
     }
   }
+}
+
+@pragma('vm:entry-point')
+void _backgroundCallbackDispatcher() {
+  const MethodChannel backgroundChannel =
+      MethodChannel('flutter.baseflow.com/geolocator_apple_background');
+
+  WidgetsFlutterBinding.ensureInitialized();
+  print('GeolocatorApple: _backgroundCallbackDispatcher initialized');
+
+  backgroundChannel.setMethodCallHandler((MethodCall call) async {
+    print('GeolocatorApple: received method call ${call.method}');
+    if (call.method == 'onLocationUpdate') {
+      final Map<dynamic, dynamic> args = call.arguments;
+      final int callbackHandleRaw = args['callbackHandle'];
+      final Map<dynamic, dynamic> positionMap = args['position'];
+
+      print('GeolocatorApple: dispatching location update to callback handle $callbackHandleRaw');
+
+      final Function? callback = PluginUtilities.getCallbackFromHandle(
+          CallbackHandle.fromRawHandle(callbackHandleRaw));
+
+      if (callback != null) {
+        final Position position = Position.fromMap(positionMap);
+        callback(position);
+        print('GeolocatorApple: callback invoked successfully');
+      } else {
+        print('GeolocatorApple: could not find callback for handle $callbackHandleRaw');
+      }
+    }
+  });
+
+  print('GeolocatorApple: signaling initialization complete to native');
+  backgroundChannel.invokeMethod('initialized');
 }

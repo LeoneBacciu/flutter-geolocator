@@ -1,6 +1,7 @@
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
 
 import 'activity_type.dart';
+import 'background_settings.dart';
 
 /// Represents different iOS specific settings with which you can set a value
 /// other then the default value of the setting.
@@ -18,6 +19,7 @@ class AppleSettings extends LocationSettings {
     super.timeLimit,
     this.showBackgroundLocationIndicator = false,
     this.allowBackgroundLocationUpdates = true,
+    this.backgroundSettings,
   });
 
   /// Allows the location manager to pause updates to improve battery life
@@ -45,6 +47,9 @@ class AppleSettings extends LocationSettings {
   /// - NSLocationAlwaysUsageDescription
   final bool allowBackgroundLocationUpdates;
 
+  /// The settings for background location updates.
+  final BackgroundSettings? backgroundSettings;
+
   /// Returns a JSON representation of this class.
   @override
   Map<String, dynamic> toJson() {
@@ -54,6 +59,7 @@ class AppleSettings extends LocationSettings {
         'activityType': activityType.index,
         'showBackgroundLocationIndicator': showBackgroundLocationIndicator,
         'allowBackgroundLocationUpdates': allowBackgroundLocationUpdates,
+        'backgroundSettings': backgroundSettings?.toJson(),
       });
   }
 }
