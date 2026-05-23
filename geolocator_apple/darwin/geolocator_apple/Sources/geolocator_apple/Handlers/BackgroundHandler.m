@@ -145,7 +145,7 @@
     BOOL timeThresholdMet = timeSinceLastUpdate >= self.timeInterval;
     BOOL distanceThresholdMet = distanceSinceLastUpdate >= self.distanceFilter;
 
-    if (!timeThresholdMet && !distanceThresholdMet) {
+    if (!timeThresholdMet || !distanceThresholdMet) {
       NSLog(@"GeolocatorApple: Dropped location update due to filters. Time: %f < %f, Distance: %f < %f", timeSinceLastUpdate, self.timeInterval, distanceSinceLastUpdate, self.distanceFilter);
       return;
     }
