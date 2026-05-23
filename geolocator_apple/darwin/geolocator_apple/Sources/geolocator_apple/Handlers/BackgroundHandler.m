@@ -4,10 +4,10 @@
 #import "../include/geolocator_apple/Utils/LocationMapper.h"
 #import <UserNotifications/UserNotifications.h>
 
-@interface BackgroundHandler () <CLLocationManagerDelegate>
+@interface BackgroundHandler ()
 @property (strong, nonatomic) FlutterEngine *backgroundEngine;
 @property (strong, nonatomic) FlutterMethodChannel *backgroundChannel;
-@property (strong, nonatomic) CLLocationManager *locationManager;
+@property (strong, nonatomic) GeolocationHandler *geolocationHandler;
 @property (assign, nonatomic) int64_t callbackHandle;
 @property (assign, nonatomic) double timeInterval;
 @property (assign, nonatomic) double distanceFilter;
@@ -22,6 +22,8 @@
                                timeInterval:(double)timeInterval
                              distanceFilter:(double)distanceFilter
                             desiredAccuracy:(CLLocationAccuracy)desiredAccuracy
+          pauseLocationUpdatesAutomatically:(BOOL)pauseLocationUpdatesAutomatically
+                               activityType:(CLActivityType)activityType
             showBackgroundLocationIndicator:(BOOL)showBackgroundLocationIndicator
              allowBackgroundLocationUpdates:(BOOL)allowBackgroundLocationUpdates {
   if (self.backgroundEngine) {
@@ -47,13 +49,13 @@
   NSLog(@"GeolocatorApple: Creating engine with entrypoint: %@ in %@", info.callbackName, info.callbackLibraryPath);
   [self.backgroundEngine runWithEntrypoint:info.callbackName libraryURI:info.callbackLibraryPath];
 
-    Class registrantClass = NSClassFromString(@"GeneratedPluginRegistrant");
-    if (registrantClass && [registrantClass respondsToSelector:@selector(registerWithRegistry:)]) {
-        NSLog(@"GeolocatorApple: Automatically registering all plugins to the background engine.");
-        [(Class<DynamicPluginRegistrant>)registrantClass registerWithRegistry:self.backgroundEngine];
-    } else {
-        NSLog(@"GeolocatorApple: Warning: Could not locate GeneratedPluginRegistrant dynamically.");
-    }
+  Class registrantClass = NSClassFromString(@"GeneratedPluginRegistrant");
+  if (registrantClass && [registrantClass respondsToSelector:@selector(registerWithRegistry:)]) {
+      NSLog(@"GeolocatorApple: Automatically registering all plugins to the background engine.");
+      [(Class<DynamicPluginRegistrant>)registrantClass registerWithRegistry:self.backgroundEngine];
+  } else {
+      NSLog(@"GeolocatorApple: Warning: Could not locate GeneratedPluginRegistrant dynamically.");
+  }
 
   self.backgroundChannel = [FlutterMethodChannel methodChannelWithName:@"flutter.baseflow.com/geolocator_apple_background" binaryMessenger:self.backgroundEngine.binaryMessenger];
 
@@ -69,31 +71,20 @@
     }
   }];
 
-  self.locationManager = [[CLLocationManager alloc] init];
-  self.locationManager.delegate = self;
-  self.locationManager.desiredAccuracy = desiredAccuracy;
-  self.locationManager.distanceFilter = distanceFilter;
-  self.locationManager.pausesLocationUpdatesAutomatically = NO;
+  self.geolocationHandler = [[GeolocationHandler alloc] init];
 
-#if TARGET_OS_IOS
-  if (@available(iOS 9.0, *)) {
-    self.locationManager.allowsBackgroundLocationUpdates = allowBackgroundLocationUpdates
-    && [GeolocationHandler shouldEnableBackgroundLocationUpdates];
+  [self.geolocationHandler startListeningWithDesiredAccuracy:desiredAccuracy
+                                              distanceFilter:distanceFilter
+                           pauseLocationUpdatesAutomatically:pauseLocationUpdatesAutomatically
+                             showBackgroundLocationIndicator:showBackgroundLocationIndicator
+                                                activityType:activityType
+                              allowBackgroundLocationUpdates:allowBackgroundLocationUpdates
+                                               resultHandler:^(CLLocation *location) {
+    [weakSelf onLocationUpdate:location];
   }
-  if (@available(iOS 11.0, *)) {
-    self.locationManager.showsBackgroundLocationIndicator = showBackgroundLocationIndicator;
-  }
-#endif
-
-  [self.locationManager startUpdatingLocation];
-}
-
-- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations {
-  [self onLocationUpdate:[locations lastObject]];
-}
-
-- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
-  NSLog(@"GeolocatorApple: Background Location Manager failed with error: %@", error);
+                                                errorHandler:^(NSString *errorCode, NSString *errorDescription) {
+    NSLog(@"GeolocatorApple: Background Location Manager failed with error: %@ - %@", errorCode, errorDescription);
+  }];
 }
 
 - (void)showBackgroundNotification {
@@ -128,8 +119,8 @@
 - (void)stopBackground {
   if (self.backgroundEngine) {
     NSLog(@"GeolocatorApple: Stopping background isolate...");
-    [self.locationManager stopUpdatingLocation];
-    self.locationManager = nil;
+    [self.geolocationHandler stopListening];
+    self.geolocationHandler = nil;
     [self.backgroundEngine destroyContext];
     self.backgroundEngine = nil;
     self.backgroundChannel = nil;
@@ -151,14 +142,17 @@
     NSTimeInterval timeSinceLastUpdate = [location.timestamp timeIntervalSinceDate:self.lastLocation.timestamp];
     CLLocationDistance distanceSinceLastUpdate = [location distanceFromLocation:self.lastLocation];
 
-    if (timeSinceLastUpdate < self.timeInterval && distanceSinceLastUpdate < self.distanceFilter) {
+    BOOL timeThresholdMet = timeSinceLastUpdate >= self.timeInterval;
+    BOOL distanceThresholdMet = distanceSinceLastUpdate >= self.distanceFilter;
+
+    if (!timeThresholdMet && !distanceThresholdMet) {
       NSLog(@"GeolocatorApple: Dropped location update due to filters. Time: %f < %f, Distance: %f < %f", timeSinceLastUpdate, self.timeInterval, distanceSinceLastUpdate, self.distanceFilter);
       return;
     }
   }
 
-  NSLog(@"GeolocatorApple: Dispatching location update to background isolate...");
   self.lastLocation = location;
+  NSLog(@"GeolocatorApple: Dispatching location update to background isolate...");
 
   NSDictionary *arguments = @{
     @"callbackHandle": @(self.callbackHandle),

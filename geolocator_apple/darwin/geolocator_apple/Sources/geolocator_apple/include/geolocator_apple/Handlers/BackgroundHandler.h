@@ -18,6 +18,8 @@
                                timeInterval:(double)timeInterval
                              distanceFilter:(double)distanceFilter
                             desiredAccuracy:(CLLocationAccuracy)desiredAccuracy
+          pauseLocationUpdatesAutomatically:(BOOL)pauseLocationUpdatesAutomatically
+                               activityType:(CLActivityType)activityType
             showBackgroundLocationIndicator:(BOOL)showBackgroundLocationIndicator
              allowBackgroundLocationUpdates:(BOOL)allowBackgroundLocationUpdates;
 

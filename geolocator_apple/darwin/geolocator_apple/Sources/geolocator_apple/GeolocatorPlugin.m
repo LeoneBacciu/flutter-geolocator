@@ -200,12 +200,16 @@
   CLLocationAccuracy accuracy = [LocationAccuracyMapper toCLLocationAccuracy:(NSNumber *)arguments[@"accuracy"]];
   NSNumber* allowBackgroundLocationUpdates = arguments[@"allowBackgroundLocationUpdates"];
   NSNumber* showBackgroundLocationIndicator = arguments[@"showBackgroundLocationIndicator"];
+  NSNumber* pauseLocationUpdatesAutomatically = arguments[@"pauseLocationUpdatesAutomatically"];
+  CLActivityType activityType = [ActivityTypeMapper toCLActivityType:(NSNumber *)arguments[@"activityType"]];
 
   [[self createBackgroundHandler] startBackgroundWithDispatcherHandle:dispatcherHandle
                                                        callbackHandle:callbackHandle
                                                          timeInterval:timeInterval
                                                        distanceFilter:distanceFilter
                                                       desiredAccuracy:accuracy
+                                    pauseLocationUpdatesAutomatically:pauseLocationUpdatesAutomatically && [pauseLocationUpdatesAutomatically boolValue]
+                                                         activityType:activityType
                                       showBackgroundLocationIndicator:showBackgroundLocationIndicator && [showBackgroundLocationIndicator boolValue]
                                        allowBackgroundLocationUpdates:[allowBackgroundLocationUpdates boolValue]];
 
