@@ -148,37 +148,18 @@ double const kMaxLocationLifeTimeInSeconds = 5.0;
 }
 
 - (void)stopListening {
-  self.errorHandler = nil;
-  self.listenerResultHandler = nil;
-
-  [self checkAndStopLocationManager];
-}
-
-- (void)stopListeningForBackground {
-  self.isListeningForBackground = NO;
-  [self checkAndStopLocationManager];
-}
-
-- (void)checkAndStopLocationManager {
-  if (!self.isListeningForBackground && !self.listenerResultHandler) {
     [[self getLocationManager] stopUpdatingLocation];
-  }
+    self.errorHandler = nil;
+    self.listenerResultHandler = nil;
 }
 
 - (void)locationManager:(CLLocationManager *)manager
      didUpdateLocations:(NSArray<CLLocation *> *)locations {
-  CLLocation *mostRecentLocation = [locations lastObject];
-  NSLog(@"GeolocatorApple: Native CLLocationManager updated location: %@", mostRecentLocation);
-  if (self.locationUpdateHandler) {
-    NSLog(@"GeolocatorApple: Calling locationUpdateHandler hook");
-    self.locationUpdateHandler(mostRecentLocation);
-  }
-
   if (!self.listenerResultHandler && !self.currentLocationResultHandler) {
-      NSLog(@"GeolocatorApple: No listener or one-time handlers registered, skipping further processing in didUpdateLocations");
       return;
   }
   
+  CLLocation *mostRecentLocation = [locations lastObject];
   NSTimeInterval ageInSeconds = -[mostRecentLocation.timestamp timeIntervalSinceNow];
   // If location is older then 5.0 seconds it is likely a cached location which
   // will be skipped.

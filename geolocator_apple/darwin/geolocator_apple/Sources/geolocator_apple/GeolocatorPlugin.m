@@ -53,12 +53,6 @@
 - (GeolocationHandler *) createGeolocationHandler {
   if (!self.geolocationHandler) {
     self.geolocationHandler = [[GeolocationHandler alloc] init];
-    __weak typeof(self) weakSelf = self;
-    [self.geolocationHandler setLocationUpdateHandler:^(CLLocation * _Nonnull location) {
-      if (weakSelf.backgroundHandler) {
-        [weakSelf.backgroundHandler onLocationUpdate:location];
-      }
-    }];
   }
   return self.geolocationHandler;
 }
@@ -203,39 +197,23 @@
   double timeInterval = [backgroundSettings[@"intervalDuration"] doubleValue] / 1000.0;
   double distanceFilter = [backgroundSettings[@"distanceFilter"] doubleValue];
 
-  [[self createBackgroundHandler] startBackgroundWithDispatcherHandle:dispatcherHandle
-                                                       callbackHandle:callbackHandle
-                                                         timeInterval:timeInterval
-                                                       distanceFilter:distanceFilter];
-
   CLLocationAccuracy accuracy = [LocationAccuracyMapper toCLLocationAccuracy:(NSNumber *)arguments[@"accuracy"]];
-  CLLocationDistance clDistanceFilter = [LocationDistanceMapper toCLLocationDistance:(NSNumber *)arguments[@"distanceFilter"]];
-  NSNumber* pauseLocationUpdatesAutomatically = arguments[@"pauseLocationUpdatesAutomatically"];
-  CLActivityType activityType = [ActivityTypeMapper toCLActivityType:(NSNumber *)arguments[@"activityType"]];
   NSNumber* allowBackgroundLocationUpdates = arguments[@"allowBackgroundLocationUpdates"];
   NSNumber* showBackgroundLocationIndicator = arguments[@"showBackgroundLocationIndicator"];
 
-  NSLog(@"GeolocatorApple: Starting native location updates for background...");
-  self.geolocationHandler.isListeningForBackground = YES;
-  [[self createGeolocationHandler] startListeningWithDesiredAccuracy:accuracy
-                                                      distanceFilter:clDistanceFilter
-                                   pauseLocationUpdatesAutomatically:pauseLocationUpdatesAutomatically && [pauseLocationUpdatesAutomatically boolValue]
-                                     showBackgroundLocationIndicator:showBackgroundLocationIndicator && [showBackgroundLocationIndicator boolValue]
-                                                        activityType:activityType
-                                      allowBackgroundLocationUpdates:[allowBackgroundLocationUpdates boolValue]
-                                                       resultHandler:^(CLLocation *location) {
-    NSLog(@"GeolocatorApple: Native location update received in background resultHandler hook");
-  }
-                                                        errorHandler:^(NSString *errorCode, NSString *errorDescription){
-    NSLog(@"GeolocatorApple: Native location error in background: %@ - %@", errorCode, errorDescription);
-  }];
+  [[self createBackgroundHandler] startBackgroundWithDispatcherHandle:dispatcherHandle
+                                                       callbackHandle:callbackHandle
+                                                         timeInterval:timeInterval
+                                                       distanceFilter:distanceFilter
+                                                      desiredAccuracy:accuracy
+                                      showBackgroundLocationIndicator:showBackgroundLocationIndicator && [showBackgroundLocationIndicator boolValue]
+                                       allowBackgroundLocationUpdates:[allowBackgroundLocationUpdates boolValue]];
 
   result(@YES);
 }
 
 - (void)onStopBackground:(FlutterResult)result {
   [[self createBackgroundHandler] stopBackground];
-  [[self createGeolocationHandler] stopListeningForBackground];
   result(@YES);
 }
 

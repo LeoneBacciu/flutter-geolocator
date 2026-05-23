@@ -1,10 +1,13 @@
 #import "../include/geolocator_apple/Handlers/BackgroundHandler.h"
+#import "../include/geolocator_apple/Handlers/GeolocationHandler.h"
+#import "../include/geolocator_apple/GeolocatorPlugin.h"
 #import "../include/geolocator_apple/Utils/LocationMapper.h"
 #import <UserNotifications/UserNotifications.h>
 
-@interface BackgroundHandler ()
+@interface BackgroundHandler () <CLLocationManagerDelegate>
 @property (strong, nonatomic) FlutterEngine *backgroundEngine;
 @property (strong, nonatomic) FlutterMethodChannel *backgroundChannel;
+@property (strong, nonatomic) CLLocationManager *locationManager;
 @property (assign, nonatomic) int64_t callbackHandle;
 @property (assign, nonatomic) double timeInterval;
 @property (assign, nonatomic) double distanceFilter;
@@ -17,7 +20,10 @@
 - (void)startBackgroundWithDispatcherHandle:(int64_t)dispatcherHandle
                              callbackHandle:(int64_t)callbackHandle
                                timeInterval:(double)timeInterval
-                             distanceFilter:(double)distanceFilter {
+                             distanceFilter:(double)distanceFilter
+                            desiredAccuracy:(CLLocationAccuracy)desiredAccuracy
+            showBackgroundLocationIndicator:(BOOL)showBackgroundLocationIndicator
+             allowBackgroundLocationUpdates:(BOOL)allowBackgroundLocationUpdates {
   if (self.backgroundEngine) {
     NSLog(@"GeolocatorApple: Background isolate already started.");
     return;
@@ -41,6 +47,14 @@
   NSLog(@"GeolocatorApple: Creating engine with entrypoint: %@ in %@", info.callbackName, info.callbackLibraryPath);
   [self.backgroundEngine runWithEntrypoint:info.callbackName libraryURI:info.callbackLibraryPath];
 
+    Class registrantClass = NSClassFromString(@"GeneratedPluginRegistrant");
+    if (registrantClass && [registrantClass respondsToSelector:@selector(registerWithRegistry:)]) {
+        NSLog(@"GeolocatorApple: Automatically registering all plugins to the background engine.");
+        [(Class<DynamicPluginRegistrant>)registrantClass registerWithRegistry:self.backgroundEngine];
+    } else {
+        NSLog(@"GeolocatorApple: Warning: Could not locate GeneratedPluginRegistrant dynamically.");
+    }
+
   self.backgroundChannel = [FlutterMethodChannel methodChannelWithName:@"flutter.baseflow.com/geolocator_apple_background" binaryMessenger:self.backgroundEngine.binaryMessenger];
 
   __weak typeof(self) weakSelf = self;
@@ -54,6 +68,32 @@
       result(FlutterMethodNotImplemented);
     }
   }];
+
+  self.locationManager = [[CLLocationManager alloc] init];
+  self.locationManager.delegate = self;
+  self.locationManager.desiredAccuracy = desiredAccuracy;
+  self.locationManager.distanceFilter = distanceFilter;
+  self.locationManager.pausesLocationUpdatesAutomatically = NO;
+
+#if TARGET_OS_IOS
+  if (@available(iOS 9.0, *)) {
+    self.locationManager.allowsBackgroundLocationUpdates = allowBackgroundLocationUpdates
+    && [GeolocationHandler shouldEnableBackgroundLocationUpdates];
+  }
+  if (@available(iOS 11.0, *)) {
+    self.locationManager.showsBackgroundLocationIndicator = showBackgroundLocationIndicator;
+  }
+#endif
+
+  [self.locationManager startUpdatingLocation];
+}
+
+- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations {
+  [self onLocationUpdate:[locations lastObject]];
+}
+
+- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
+  NSLog(@"GeolocatorApple: Background Location Manager failed with error: %@", error);
 }
 
 - (void)showBackgroundNotification {
@@ -88,6 +128,8 @@
 - (void)stopBackground {
   if (self.backgroundEngine) {
     NSLog(@"GeolocatorApple: Stopping background isolate...");
+    [self.locationManager stopUpdatingLocation];
+    self.locationManager = nil;
     [self.backgroundEngine destroyContext];
     self.backgroundEngine = nil;
     self.backgroundChannel = nil;
