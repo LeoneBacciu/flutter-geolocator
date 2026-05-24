@@ -1,6 +1,5 @@
 import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
 
-import 'background_settings.dart';
 import 'foreground_settings.dart';
 
 /// Represents different Android specific settings with which you can set a value
@@ -16,8 +15,8 @@ class AndroidSettings extends LocationSettings {
     super.distanceFilter,
     this.intervalDuration,
     super.timeLimit,
+    super.backgroundSettings,
     this.foregroundNotificationConfig,
-    this.backgroundSettings,
     this.useMSLAltitude = false,
   });
 
@@ -57,9 +56,6 @@ class AndroidSettings extends LocationSettings {
   /// background service package that will start a new Flutter Engine that is not tied to your main activity.
   final ForegroundNotificationConfig? foregroundNotificationConfig;
 
-  /// The settings for background location updates.
-  final BackgroundSettings? backgroundSettings;
-
   /// Set to true if altitude should be calculated as MSL (EGM2008) from NMEA messages
   /// and reported as the altitude instead of using the geoidal height (WSG84). Setting
   /// this property true will help to align Android altitude to that of iOS which uses MSL.
@@ -83,7 +79,6 @@ class AndroidSettings extends LocationSettings {
         'forceLocationManager': forceLocationManager,
         'timeInterval': intervalDuration?.inMilliseconds,
         'foregroundNotificationConfig': foregroundNotificationConfig?.toJson(),
-        'backgroundSettings': backgroundSettings?.toJson(),
         'useMSLAltitude': useMSLAltitude,
       });
   }
