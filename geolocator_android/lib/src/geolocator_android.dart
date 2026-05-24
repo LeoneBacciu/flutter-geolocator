@@ -248,6 +248,7 @@ class GeolocatorAndroid extends GeolocatorPlatform {
   ///
   /// The [locationSettings] MUST be an instance of [AndroidSettings] and MUST
   /// contain a [BackgroundSettings] instance.
+  @override
   Future<bool> startBackground(LocationSettings locationSettings) async {
     if (locationSettings is! AndroidSettings ||
         locationSettings.backgroundSettings == null) {
@@ -270,10 +271,12 @@ class GeolocatorAndroid extends GeolocatorPlatform {
   }
 
   /// Stops the background location service.
+  @override
   Future<bool> stopBackground() async {
     return await _methodChannel.invokeMethod('stopBackground');
   }
 
+  @override
   Future<bool> isBackgroundRunning() async {
     return await _methodChannel.invokeMethod('isBackgroundRunning');
   }

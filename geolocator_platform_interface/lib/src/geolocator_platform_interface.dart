@@ -278,4 +278,24 @@ abstract class GeolocatorPlatform extends PlatformInterface {
 
     return degrees(atan2(y, x));
   }
+  
+  /// Starts the background location service.
+  ///
+  /// The [locationSettings] specifies the configuration for the background
+  /// location updates, including the callback, interval, and distance filter.
+  ///
+  /// The [locationSettings] MUST contain a [BackgroundSettings] instance.
+  Future<bool> startBackground(LocationSettings locationSettings) {
+    throw UnimplementedError('startBackground() has not been implemented');
+  }
+
+  /// Stops the background location service.
+  Future<bool> stopBackground() {
+    throw UnimplementedError('stopBackground() has not been implemented');
+  }
+
+  /// Returns whether the background location service is running.
+  Future<bool> isBackgroundRunning() {
+    throw UnimplementedError('isBackgroundRunning() has not been implemented');
+  }
 }

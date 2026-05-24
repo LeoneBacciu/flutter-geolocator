@@ -13,8 +13,8 @@ export 'package:geolocator_android/geolocator_android.dart'
         AndroidPosition;
 export 'package:geolocator_apple/geolocator_apple.dart'
     show AppleSettings, ActivityType;
-export 'package:geolocator_web/web_settings.dart' show WebSettings;
 export 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
+export 'package:geolocator_web/web_settings.dart' show WebSettings;
 
 /// Wraps CLLocationManager (on iOS) and FusedLocationProviderClient or
 /// LocationManager
@@ -277,4 +277,21 @@ class Geolocator {
         endLatitude,
         endLongitude,
       );
+
+  /// Starts the background location service.
+  ///
+  /// The [locationSettings] specifies the configuration for the background
+  /// location updates, including the callback, interval, and distance filter.
+  ///
+  /// The [locationSettings] MUST contain a [BackgroundSettings] instance.
+  static Future<bool> startBackground(LocationSettings locationSettings) =>
+      GeolocatorPlatform.instance.startBackground(locationSettings);
+
+  /// Stops the background location service.
+  static Future<bool> stopBackground() =>
+      GeolocatorPlatform.instance.stopBackground();
+
+  /// Returns whether the background location service is running.
+  static Future<bool> isBackgroundRunning() =>
+      GeolocatorPlatform.instance.isBackgroundRunning();
 }

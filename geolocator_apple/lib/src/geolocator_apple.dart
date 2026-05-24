@@ -236,6 +236,7 @@ class GeolocatorApple extends GeolocatorPlatform {
   ///
   /// The [locationSettings] MUST be an instance of [AppleSettings] and MUST
   /// contain a [BackgroundSettings] instance.
+  @override
   Future<bool> startBackground(LocationSettings locationSettings) async {
     if (locationSettings is! AppleSettings ||
         locationSettings.backgroundSettings == null) {
@@ -258,11 +259,13 @@ class GeolocatorApple extends GeolocatorPlatform {
   }
 
   /// Stops the background location service.
+  @override
   Future<bool> stopBackground() async {
     return await _methodChannel.invokeMethod('stopBackground') ?? false;
   }
 
   /// Returns whether the background location service is running.
+  @override
   Future<bool> isBackgroundRunning() async {
     return await _methodChannel.invokeMethod('isBackgroundRunning') ?? false;
   }
