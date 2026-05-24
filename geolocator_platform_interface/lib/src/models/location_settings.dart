@@ -1,4 +1,5 @@
 import '../enums/location_accuracy.dart';
+import 'background_settings.dart';
 
 /// Represents the abstract [LocationSettings] class with which you can
 /// configure platform specific settings.
@@ -13,6 +14,7 @@ class LocationSettings {
     this.accuracy = LocationAccuracy.best,
     this.distanceFilter = 0,
     this.timeLimit,
+    this.backgroundSettings,
   });
 
   /// Defines the desired accuracy that should be used to determine the
@@ -34,11 +36,15 @@ class LocationSettings {
   /// supplied [timeLimit] duration.
   final Duration? timeLimit;
 
+  /// The settings for background location updates.
+  final BackgroundSettings? backgroundSettings;
+
   /// Serializes the [PlatformSpecificSettings] to a map message
   Map<String, dynamic> toJson() {
     return {
       'accuracy': accuracy.index,
       'distanceFilter': distanceFilter,
+      'backgroundSettings': backgroundSettings?.toJson(),
     };
   }
 }
