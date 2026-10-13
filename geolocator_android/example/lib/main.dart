@@ -310,7 +310,7 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
     final position = await geolocatorAndroid.getCurrentPosition();
     _updatePositionList(
       _PositionItemType.position,
-      position.toString(),
+      _displayPosition(position),
     );
   }
 
@@ -420,7 +420,7 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
         debugPrint(position.altitude.toString());
         _updatePositionList(
           _PositionItemType.position,
-          position.toString(),
+          _displayPosition(position),
         );
       });
       _positionStreamSubscription?.pause();
@@ -486,7 +486,7 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
     if (position != null) {
       _updatePositionList(
         _PositionItemType.position,
-        position.toString(),
+        _displayPosition(position),
       );
     } else {
       _updatePositionList(
@@ -494,6 +494,17 @@ class _GeolocatorWidgetState extends State<GeolocatorWidget> {
         'No last known position available',
       );
     }
+  }
+
+  String _displayPosition(Position position) {
+    final verticalSpeed = position.hasVerticalSpeed
+        ? '${position.verticalSpeed.toStringAsFixed(2)} m/s'
+        : 'unavailable';
+    final verticalSpeedAccuracy = position.hasVerticalSpeedAccuracy
+        ? '${position.verticalSpeedAccuracy.toStringAsFixed(2)} m/s'
+        : 'unavailable';
+    return '${position.toString()}\nVertical speed: $verticalSpeed'
+        '\nVertical speed accuracy: $verticalSpeedAccuracy';
   }
 
   void _getLocationAccuracy() async {

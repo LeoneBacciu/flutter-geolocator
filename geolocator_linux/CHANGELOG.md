@@ -1,3 +1,11 @@
+## 0.2.6
+
+- Updates dependency on flutter_lints to version 6.0.0.
+
+## 0.2.5
+
+- Updates dependency on package_info_plus to version 10.0.0.
+
 ## 0.2.4
 
 - Updates dependency on package_info_plus to version 9.0.0.

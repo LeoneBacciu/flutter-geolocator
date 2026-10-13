@@ -1,6 +1,19 @@
-## NEXT
+## 4.4.0
 
-- Updated `flutter_lints` to version `^5.0.0`.
+- Adds `verticalSpeed` and `verticalSpeedAccuracy` with corresponding `hasVerticalSpeed` and `hasVerticalSpeedAccuracy` flags to `Position`.
+
+## 4.3.0
+
+- Adds `hasAccuracy`, `hasAltitude`, `hasAltitudeAccuracy`, `hasHeading`, `hasHeadingAccuracy`, `hasSpeed` and `hasSpeedAccuracy` to `Position`, so a value the platform could not measure is distinguishable from the same value measured as `0.0`. The Android platform channel already omits a key when its `Location.hasX()` predicate is false; `Position.fromMap` substituted `0.0` for the missing value, and the distinction was lost. The reported numeric values are unchanged and every field defaults to `false`, so existing code is unaffected. Resolves [#1733](https://github.com/Baseflow/flutter-geolocator/issues/1733) and [#1525](https://github.com/Baseflow/flutter-geolocator/issues/1525).
+
+## 4.2.8
+
+- Updates dependencies to their latest versions.
+- Fixes an analysis warning indicating a missing type declaration.
+
+## 4.2.7
+
+- Clarifies the documentation of `Position.heading` to explain that it carries the course over ground (direction of travel, from `Location.getBearing()` on Android and `CLLocation.course` on iOS), which is distinct from compass heading. The field keeps the `heading` name for backward compatibility. Resolves [#1187](https://github.com/Baseflow/flutter-geolocator/issues/1187).
 
 ## 4.2.6
 
